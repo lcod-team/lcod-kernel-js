@@ -4,14 +4,16 @@ import path from 'node:path';
 import { Registry, Context } from '../src/registry.js';
 import { runCompose } from '../src/compose.js';
 import { registerDemoAxioms } from '../src/axioms.js';
+import { loadModulesFromMap } from '../src/loaders.js';
 
 function parseArgs(argv) {
-  const args = { compose: null, demo: false, state: null };
+  const args = { compose: null, demo: false, state: null, modules: null };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--compose' || a === '-c') args.compose = argv[++i];
     else if (a === '--demo') args.demo = true;
     else if (a === '--state' || a === '-s') args.state = argv[++i];
+    else if (a === '--modules' || a === '-m') args.modules = argv[++i];
   }
   return args;
 }
@@ -28,6 +30,7 @@ async function main() {
   const compose = readJson(composePath).compose || [];
   const reg = new Registry();
   if (args.demo) registerDemoAxioms(reg);
+  if (args.modules) await loadModulesFromMap(reg, args.modules, { baseDir: process.cwd() });
   const ctx = new Context(reg);
   const initial = args.state ? readJson(path.resolve(process.cwd(), args.state)) : {};
   const result = await runCompose(ctx, compose, initial);
@@ -35,4 +38,3 @@ async function main() {
 }
 
 main().catch(err => { console.error(err.stack || String(err)); process.exit(1); });
-

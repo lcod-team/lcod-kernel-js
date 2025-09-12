@@ -15,6 +15,11 @@ Includes:
 ```bash
 npm run demo   # runs the example composite (no deps required)
 
-# Or run any compose.json
+# Or run any compose.json (with optional demo axioms)
 node bin/run-compose.mjs --compose ../lcod-spec/examples/demo/my_weather/compose.json --demo
+
+# Options
+# --demo       register built-in demo functions
+# --modules    load functions from a JSON module map (id -> module/export)
+# --state      provide initial state JSON file
 ```
