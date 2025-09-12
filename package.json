@@ -1,0 +1,15 @@
+{
+  "name": "lcod-kernel-ts",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "demo": "node src/example.js",
+    "compose": "node bin/run-compose.mjs"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  }
+}
+
