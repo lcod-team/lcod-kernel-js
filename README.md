@@ -13,6 +13,5 @@ Includes:
 ## Quick demo
 
 ```bash
-npm i
-npm run demo   # runs the example composite
+npm run demo   # runs the example composite (no deps required)
 ```
