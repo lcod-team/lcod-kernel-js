@@ -1,0 +1,5 @@
+{
+  "lcod://core/localisation@1": { "module": "./src/impl/demo.js", "export": "localisation" },
+  "lcod://core/extract_city@1": { "module": "./src/impl/demo.js", "export": "extract_city" },
+  "lcod://core/weather@1": { "module": "./src/impl/demo.js", "export": "weather" }
+}
