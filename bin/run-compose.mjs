@@ -7,13 +7,14 @@ import { registerDemoAxioms } from '../src/axioms.js';
 import { loadModulesFromMap } from '../src/loaders.js';
 
 function parseArgs(argv) {
-  const args = { compose: null, demo: false, state: null, modules: null };
+  const args = { compose: null, demo: false, state: null, modules: null, bind: null };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--compose' || a === '-c') args.compose = argv[++i];
     else if (a === '--demo') args.demo = true;
     else if (a === '--state' || a === '-s') args.state = argv[++i];
     else if (a === '--modules' || a === '-m') args.modules = argv[++i];
+    else if (a === '--bind' || a === '-b') args.bind = argv[++i];
   }
   return args;
 }
@@ -31,6 +32,11 @@ async function main() {
   const reg = new Registry();
   if (args.demo) registerDemoAxioms(reg);
   if (args.modules) await loadModulesFromMap(reg, args.modules, { baseDir: process.cwd() });
+  if (args.bind) {
+    const bindingPath = path.resolve(process.cwd(), args.bind);
+    const bindings = JSON.parse(fs.readFileSync(bindingPath, 'utf8'));
+    reg.setBindings(bindings);
+  }
   const ctx = new Context(reg);
   const initial = args.state ? readJson(path.resolve(process.cwd(), args.state)) : {};
   const result = await runCompose(ctx, compose, initial);

@@ -1,9 +1,9 @@
-// Minimal compose runner (sequential). Supports $.path bindings and explicit out mapping.
+// Compose runner with basic slots and foreach (array). Sequential for simplicity.
 
-function getByPath(obj, path) {
-  if (!path || !path.startsWith('$.')) return path;
-  const parts = path.slice(2).split('.');
-  let cur = obj;
+function getByPathRoot(rootObj, pathStr) {
+  if (!pathStr || typeof pathStr !== 'string') return pathStr;
+  const parts = pathStr.split('.');
+  let cur = rootObj;
   for (const p of parts) {
     if (cur == null) return undefined;
     cur = cur[p];
@@ -11,62 +11,75 @@ function getByPath(obj, path) {
   return cur;
 }
 
-function buildInput(bindings, state) {
+function resolveValue(v, state, slot) {
+  if (typeof v !== 'string') return v;
+  if (v.startsWith('$.')) return getByPathRoot({ $: state }, v);
+  if (v.startsWith('$slot.')) return getByPathRoot({ $slot: slot || {} }, v);
+  return v;
+}
+
+function buildInput(bindings, state, slot) {
   const out = {};
   for (const [k, v] of Object.entries(bindings || {})) {
-    if (typeof v === 'string' && v.startsWith('$.')) out[k] = getByPath(state, v);
-    else out[k] = v;
+    out[k] = resolveValue(v, state, slot);
   }
   return out;
 }
 
-function depsForStep(step) {
-  const deps = new Set();
-  for (const v of Object.values(step.in || {})) {
-    if (typeof v === 'string' && v.startsWith('$.')) {
-      const key = v.slice(2).split('.')[0];
-      deps.add(key);
+async function runSteps(ctx, steps, state, slot) {
+  let cur = { ...state };
+  for (const step of steps || []) {
+    // Normalize single-slot children shorthand (children: [...])
+    const children = Array.isArray(step.children)
+      ? { children: step.children }
+      : (step.children || null);
+
+    // Flow: foreach (array)
+    if (step.call === 'lcod://flow/foreach@1') {
+      const input = buildInput(step.in || {}, cur, slot);
+      const list = input.list || [];
+      const body = children?.body || children?.children || [];
+      const elseSlot = children?.else || [];
+      const results = [];
+      if (Array.isArray(list) && list.length > 0) {
+        for (let index = 0; index < list.length; index++) {
+          const item = list[index];
+          const iterState = await runSteps(ctx, body, { ...cur }, { ...(slot||{}), item, index });
+          const collectPath = step.collectPath;
+          if (collectPath) {
+            const val = resolveValue(collectPath, iterState, { ...(slot||{}), item, index });
+            results.push(val);
+          }
+        }
+      } else {
+        cur = await runSteps(ctx, elseSlot, cur, slot);
+      }
+      for (const [alias, key] of Object.entries(step.out || {})) {
+        if (key === 'results') cur[alias] = results;
+      }
+      continue;
+    }
+
+    // Flow: if
+    if (step.call === 'lcod://flow/if@1') {
+      const input = buildInput(step.in || {}, cur, slot);
+      const cond = !!input.cond;
+      const thenSteps = children?.then || children?.children || [];
+      const elseSteps = children?.else || [];
+      cur = await runSteps(ctx, cond ? thenSteps : elseSteps, cur, slot);
+      continue;
+    }
+
+    // Regular call
+    const input = buildInput(step.in || {}, cur, slot);
+    const res = await ctx.call(step.call, input);
+    for (const [alias, key] of Object.entries(step.out || {})) {
+      cur[alias] = res[key];
     }
   }
-  return deps;
+  return cur;
 }
 
 export async function runCompose(ctx, compose, initialState = {}) {
-  let state = { ...initialState };
-  const steps = (compose || []).map((s, idx) => ({ idx, s, deps: depsForStep(s), produces: new Set(Object.keys(s.out || {})), done: false }));
-  const produced = new Set(Object.keys(state));
-  let remaining = steps.length;
-
-  while (remaining > 0) {
-    const batch = [];
-    for (const st of steps) {
-      if (st.done) continue;
-      let ready = true;
-      for (const d of st.deps) if (!produced.has(d)) { ready = false; break; }
-      if (ready) batch.push(st);
-    }
-    if (batch.length === 0) {
-      throw new Error('Compose deadlock: unresolved dependencies or cycle');
-    }
-    const aliases = new Set();
-    for (const st of batch) {
-      for (const a of st.produces) {
-        if (aliases.has(a)) throw new Error(`Alias collision in compose batch: ${a}`);
-        aliases.add(a);
-      }
-    }
-    const results = await Promise.all(batch.map(async (st) => {
-      const input = buildInput(st.s.in || {}, state);
-      const res = await ctx.call(st.s.call, input);
-      return { st, res };
-    }));
-    for (const { st, res } of results) {
-      for (const [alias, key] of Object.entries(st.s.out || {})) {
-        state[alias] = res[key];
-        produced.add(alias);
-      }
-      st.done = true; remaining--;
-    }
-  }
-  return state;
+  return runSteps(ctx, compose || [], initialState, {});
 }

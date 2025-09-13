@@ -1,0 +1,3 @@
+{
+  "lcod://contract/net/http-client@1": "lcod://impl/net/fetch@1"
+}
