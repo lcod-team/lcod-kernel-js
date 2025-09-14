@@ -17,8 +17,12 @@ export class Registry {
 import { getValidator } from './validate.js';
 
 export class Context {
-  constructor(registry) { this.registry = registry; }
-  async call(name, input) {
+  constructor(registry) {
+    this.registry = registry;
+    this.runChildren = async (_childrenArray, _localState, _slotVars) => { throw new Error('runChildren not available in this context'); };
+    this.runSlot = async (_slotName, _localState, _slotVars) => { throw new Error('runSlot not available in this context'); };
+  }
+  async call(name, input, meta) {
     let entry = this.registry.get(name);
     // Basic contract binding: if not found and looks like a contract ID, resolve via bindings
     if (!entry && typeof name === 'string' && name.startsWith('lcod://contract/')) {
@@ -38,7 +42,7 @@ export class Context {
         throw new Error(`Input validation failed for ${name}: ${msg}`);
       }
     }
-    const out = await fn(this, dataIn);
+    const out = await fn(this, dataIn, meta);
     if (outputSchema) {
       const validate = await getValidator(outputSchema);
       const ok = validate(out);

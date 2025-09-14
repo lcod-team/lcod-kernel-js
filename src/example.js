@@ -1,9 +1,14 @@
 import { Registry, Context } from './registry.js';
 import { registerDemoAxioms } from './axioms.js';
 import { runCompose } from './compose.js';
+import { flowIf } from './flow/if.js';
+import { flowForeach } from './flow/foreach.js';
 
 async function main() {
   const reg = registerDemoAxioms(new Registry());
+  // Register flow implementations as normal components (POC)
+  reg.register('lcod://flow/if@1', flowIf);
+  reg.register('lcod://flow/foreach@1', flowForeach);
   const ctx = new Context(reg);
 
   const flow = {
@@ -19,4 +24,3 @@ async function main() {
 }
 
 main().catch(err => { console.error(err); process.exit(1); });
-

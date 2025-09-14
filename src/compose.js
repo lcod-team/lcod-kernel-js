@@ -34,45 +34,16 @@ async function runSteps(ctx, steps, state, slot) {
       ? { children: step.children }
       : (step.children || null);
 
-    // Flow: foreach (array)
-    if (step.call === 'lcod://flow/foreach@1') {
-      const input = buildInput(step.in || {}, cur, slot);
-      const list = input.list || [];
-      const body = children?.body || children?.children || [];
-      const elseSlot = children?.else || [];
-      const results = [];
-      if (Array.isArray(list) && list.length > 0) {
-        for (let index = 0; index < list.length; index++) {
-          const item = list[index];
-          const iterState = await runSteps(ctx, body, { ...cur }, { ...(slot||{}), item, index });
-          const collectPath = step.collectPath;
-          if (collectPath) {
-            const val = resolveValue(collectPath, iterState, { ...(slot||{}), item, index });
-            results.push(val);
-          }
-        }
-      } else {
-        cur = await runSteps(ctx, elseSlot, cur, slot);
-      }
-      for (const [alias, key] of Object.entries(step.out || {})) {
-        if (key === 'results') cur[alias] = results;
-      }
-      continue;
-    }
+    // Expose helpers so implementations can orchestrate slots
+    ctx.runChildren = async (childrenArray, localState, slotVars) => runSteps(ctx, childrenArray || [], localState ?? cur, slotVars ?? slot);
+    ctx.runSlot = async (name, localState, slotVars) => {
+      const arr = (children && (children[name] || (name === 'children' ? children.children : null))) || [];
+      return runSteps(ctx, arr, localState ?? cur, slotVars ?? slot);
+    };
 
-    // Flow: if
-    if (step.call === 'lcod://flow/if@1') {
-      const input = buildInput(step.in || {}, cur, slot);
-      const cond = !!input.cond;
-      const thenSteps = children?.then || children?.children || [];
-      const elseSteps = children?.else || [];
-      cur = await runSteps(ctx, cond ? thenSteps : elseSteps, cur, slot);
-      continue;
-    }
-
-    // Regular call
+    // Generic call with meta (children, slot, collectPath hint)
     const input = buildInput(step.in || {}, cur, slot);
-    const res = await ctx.call(step.call, input);
+    const res = await ctx.call(step.call, input, { children, slot, collectPath: step.collectPath });
     for (const [alias, key] of Object.entries(step.out || {})) {
       cur[alias] = res[key];
     }
