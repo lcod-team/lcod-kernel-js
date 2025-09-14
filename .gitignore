@@ -1,0 +1,27 @@
+# Node
+node_modules/
+.npmrc
+npm-debug.log*
+package-lock.json
+
+# Build artifacts
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# Coverage/Reports
+coverage/
+.nyc_output/
+
+# Env/Secrets
+.env
+.env.*
+
+# Editors/OS
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log
