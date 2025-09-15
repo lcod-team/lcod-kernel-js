@@ -3,12 +3,16 @@ import { registerDemoAxioms } from './axioms.js';
 import { runCompose } from './compose.js';
 import { flowIf } from './flow/if.js';
 import { flowForeach } from './flow/foreach.js';
+import { flowBreak } from './flow/break.js';
+import { flowContinue } from './flow/continue.js';
 
 async function main() {
   const reg = registerDemoAxioms(new Registry());
   // Register flow implementations as normal components (POC)
   reg.register('lcod://flow/if@1', flowIf);
   reg.register('lcod://flow/foreach@1', flowForeach);
+  reg.register('lcod://flow/break@1', flowBreak);
+  reg.register('lcod://flow/continue@1', flowContinue);
   const ctx = new Context(reg);
 
   const flow = {

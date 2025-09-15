@@ -21,6 +21,19 @@ export class Context {
     this.registry = registry;
     this.runChildren = async (_childrenArray, _localState, _slotVars) => { throw new Error('runChildren not available in this context'); };
     this.runSlot = async (_slotName, _localState, _slotVars) => { throw new Error('runSlot not available in this context'); };
+    // Cleanup scopes for resources
+    this._scopeStack = [];
+  }
+  defer(fn) {
+    if (!this._scopeStack.length) this._scopeStack.push([]);
+    this._scopeStack[this._scopeStack.length - 1].push(fn);
+  }
+  _pushScope() { this._scopeStack.push([]); }
+  async _popScope() {
+    const list = this._scopeStack.pop() || [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      try { await list[i](); } catch (_e) { /* ignore cleanup errors */ }
+    }
   }
   async call(name, input, meta) {
     let entry = this.registry.get(name);

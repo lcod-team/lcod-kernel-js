@@ -34,16 +34,25 @@ async function runSteps(ctx, steps, state, slot) {
       ? { children: step.children }
       : (step.children || null);
 
-    // Expose helpers so implementations can orchestrate slots
-    ctx.runChildren = async (childrenArray, localState, slotVars) => runSteps(ctx, childrenArray || [], localState ?? cur, slotVars ?? slot);
+    // Expose helpers so implementations can orchestrate slots with scoped cleanups
+    ctx.runChildren = async (childrenArray, localState, slotVars) => {
+      ctx._pushScope();
+      try { return await runSteps(ctx, childrenArray || [], localState ?? cur, slotVars ?? slot); }
+      finally { await ctx._popScope(); }
+    };
     ctx.runSlot = async (name, localState, slotVars) => {
       const arr = (children && (children[name] || (name === 'children' ? children.children : null))) || [];
-      return runSteps(ctx, arr, localState ?? cur, slotVars ?? slot);
+      ctx._pushScope();
+      try { return await runSteps(ctx, arr, localState ?? cur, slotVars ?? slot); }
+      finally { await ctx._popScope(); }
     };
 
     // Generic call with meta (children, slot, collectPath hint)
     const input = buildInput(step.in || {}, cur, slot);
-    const res = await ctx.call(step.call, input, { children, slot, collectPath: step.collectPath });
+    ctx._pushScope();
+    let res;
+    try { res = await ctx.call(step.call, input, { children, slot, collectPath: step.collectPath }); }
+    finally { await ctx._popScope(); }
     for (const [alias, key] of Object.entries(step.out || {})) {
       cur[alias] = res[key];
     }
