@@ -38,6 +38,29 @@ test('foreach collects child output with collectPath', async () => {
   assert.deepEqual(results, [1, 2, 3]);
 });
 
+test('foreach executes else slot when list is empty', async () => {
+  const ctx = buildDemoContext();
+  const compose = [
+    {
+      call: 'lcod://flow/foreach@1',
+      in: { list: '$.numbers' },
+      children: {
+        body: [
+          { call: 'lcod://impl/echo@1', in: { value: '$slot.item' }, out: { val: 'val' } }
+        ],
+        else: [
+          { call: 'lcod://impl/echo@1', in: { value: 'empty' }, out: { val: 'val' } }
+        ]
+      },
+      collectPath: '$.val',
+      out: { results: 'results' }
+    }
+  ];
+
+  const { results } = await runCompose(ctx, compose, { numbers: [] });
+  assert.deepEqual(results, ['empty']);
+});
+
 test('foreach exposes slot variables in collectPath', async () => {
   const ctx = buildDemoContext();
   const compose = [
@@ -76,4 +99,29 @@ test('foreach handles continue and break signals', async () => {
 
   const { results } = await runCompose(ctx, compose, { numbers: [1, 2, 3, 8, 9] });
   assert.deepEqual(results, [1, 3]);
+});
+
+test('foreach consumes async stream input', async () => {
+  const ctx = buildDemoContext();
+  async function* makeStream() {
+    yield 1;
+    yield 2;
+    yield 3;
+  }
+  const compose = [
+    {
+      call: 'lcod://flow/foreach@1',
+      in: { stream: '$.numbers' },
+      children: {
+        body: [
+          { call: 'lcod://impl/echo@1', in: { value: '$slot.item' }, out: { val: 'val' } }
+        ]
+      },
+      collectPath: '$.val',
+      out: { results: 'results' }
+    }
+  ];
+
+  const { results } = await runCompose(ctx, compose, { numbers: makeStream() });
+  assert.deepEqual(results, [1, 2, 3]);
 });

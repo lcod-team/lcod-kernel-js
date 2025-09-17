@@ -9,11 +9,29 @@ function getByPathRoot(rootObj, pathStr) {
   return cur;
 }
 
+async function toArray(maybeIterable) {
+  if (!maybeIterable) return [];
+  if (Array.isArray(maybeIterable)) return maybeIterable;
+  if (typeof maybeIterable[Symbol.asyncIterator] === 'function') {
+    const collected = [];
+    for await (const item of maybeIterable) collected.push(item);
+    return collected;
+  }
+  if (typeof maybeIterable[Symbol.iterator] === 'function') {
+    return [...maybeIterable];
+  }
+  return [];
+}
+
 export async function flowForeach(ctx, input, meta) {
-  const list = (input && Array.isArray(input.list)) ? input.list : [];
+  const list = await toArray(input?.list ?? input?.stream);
   const results = [];
   if (list.length === 0) {
-    await ctx.runSlot('else');
+    const elseState = await ctx.runSlot('else', undefined, { item: undefined, index: -1 });
+    if (meta && meta.collectPath) {
+      const val = getByPathRoot({ $: elseState, $slot: { item: undefined, index: -1 } }, meta.collectPath);
+      if (typeof val !== 'undefined') results.push(val);
+    }
     return { results };
   }
   for (let index = 0; index < list.length; index++) {
