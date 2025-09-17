@@ -16,6 +16,14 @@ export function registerDemoAxioms(reg) {
     return { tempC: 21 };
   });
 
+  // simple echo implementation used by demos
+  reg.register('lcod://impl/echo@1', async (_ctx, { value }) => ({ val: value }));
+
+  // demo helper: predicate is_even
+  reg.register('lcod://impl/is_even@1', async (_ctx, { value }) => ({ ok: (value % 2) === 0 }));
+
+  // demo helper: predicate greater than limit
+  reg.register('lcod://impl/gt@1', async (_ctx, { value, limit }) => ({ ok: value > limit }));
+
   return reg;
 }
-

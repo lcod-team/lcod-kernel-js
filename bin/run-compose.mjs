@@ -4,6 +4,10 @@ import path from 'node:path';
 import { Registry, Context } from '../src/registry.js';
 import { runCompose } from '../src/compose.js';
 import { registerDemoAxioms } from '../src/axioms.js';
+import { flowIf } from '../src/flow/if.js';
+import { flowForeach } from '../src/flow/foreach.js';
+import { flowBreak } from '../src/flow/break.js';
+import { flowContinue } from '../src/flow/continue.js';
 import { loadModulesFromMap } from '../src/loaders.js';
 
 function parseArgs(argv) {
@@ -30,7 +34,15 @@ async function main() {
   const composePath = path.resolve(process.cwd(), args.compose);
   const compose = readJson(composePath).compose || [];
   const reg = new Registry();
-  if (args.demo) registerDemoAxioms(reg);
+  if (args.demo) {
+    registerDemoAxioms(reg);
+    // Register built-in flow blocks for demo usage
+    reg.register('lcod://flow/if@1', flowIf);
+    reg.register('lcod://flow/foreach@1', flowForeach);
+    // continue/break are optional controls for foreach-capable kernels
+    if (flowBreak) reg.register('lcod://flow/break@1', flowBreak);
+    if (flowContinue) reg.register('lcod://flow/continue@1', flowContinue);
+  }
   if (args.modules) await loadModulesFromMap(reg, args.modules, { baseDir: process.cwd() });
   if (args.bind) {
     const bindingPath = path.resolve(process.cwd(), args.bind);

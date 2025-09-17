@@ -18,12 +18,23 @@ export async function flowForeach(ctx, input, meta) {
   }
   for (let index = 0; index < list.length; index++) {
     const item = list[index];
-    const iterState = await ctx.runSlot('body', undefined, { item, index });
-    if (meta && meta.collectPath) {
-      const val = getByPathRoot({ $: iterState }, meta.collectPath);
-      results.push(val);
+    try {
+      const iterState = await ctx.runSlot('body', undefined, { item, index });
+      const root = { $: iterState, $slot: { item, index } };
+      // debug: uncomment for tracing
+      // console.error('foreach iter', { index, item, iterState });
+      if (meta && meta.collectPath) {
+        const val = getByPathRoot(root, meta.collectPath);
+        // console.error('collect', meta.collectPath, '=>', val);
+        results.push(val);
+      } else {
+        results.push(item);
+      }
+    } catch (e) {
+      if (e && e.$signal === 'continue') continue;
+      if (e && e.$signal === 'break') break;
+      throw e;
     }
   }
   return { results };
 }
-

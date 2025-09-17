@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "demo": "node src/example.js",
-    "compose": "node bin/run-compose.mjs"
+    "compose": "node bin/run-compose.mjs",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "devDependencies": {
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1"
   }
 }
-

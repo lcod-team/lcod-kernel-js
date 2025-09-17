@@ -35,15 +35,17 @@ async function runSteps(ctx, steps, state, slot) {
       : (step.children || null);
 
     // Expose helpers so implementations can orchestrate slots with scoped cleanups
+    const prevRunChildren = ctx.runChildren;
+    const prevRunSlot = ctx.runSlot;
     ctx.runChildren = async (childrenArray, localState, slotVars) => {
       ctx._pushScope();
-      try { return await runSteps(ctx, childrenArray || [], localState ?? cur, slotVars ?? slot); }
+      try { return await runSteps(ctx, childrenArray || [], localState ?? {}, slotVars ?? slot); }
       finally { await ctx._popScope(); }
     };
     ctx.runSlot = async (name, localState, slotVars) => {
       const arr = (children && (children[name] || (name === 'children' ? children.children : null))) || [];
       ctx._pushScope();
-      try { return await runSteps(ctx, arr, localState ?? cur, slotVars ?? slot); }
+      try { return await runSteps(ctx, arr, localState ?? {}, slotVars ?? slot); }
       finally { await ctx._popScope(); }
     };
 
@@ -52,7 +54,12 @@ async function runSteps(ctx, steps, state, slot) {
     ctx._pushScope();
     let res;
     try { res = await ctx.call(step.call, input, { children, slot, collectPath: step.collectPath }); }
-    finally { await ctx._popScope(); }
+    finally {
+      await ctx._popScope();
+      // restore helpers for outer steps/iterations
+      ctx.runChildren = prevRunChildren;
+      ctx.runSlot = prevRunSlot;
+    }
     for (const [alias, key] of Object.entries(step.out || {})) {
       cur[alias] = res[key];
     }
