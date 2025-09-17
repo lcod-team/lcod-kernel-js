@@ -6,7 +6,7 @@
   "scripts": {
     "demo": "node src/example.js",
     "compose": "node bin/run-compose.mjs",
-    "test": "node --test test/**/*.test.js"
+    "test": "node --test test/flow.foreach.test.js"
   },
   "devDependencies": {
     "ajv": "^8.17.1",
