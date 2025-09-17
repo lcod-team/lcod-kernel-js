@@ -23,3 +23,20 @@ node bin/run-compose.mjs --compose ../lcod-spec/examples/demo/my_weather/compose
 # --modules    load functions from a JSON module map (id -> module/export)
 # --state      provide initial state JSON file
 ```
+
+## Validate a component package
+
+Use the strict validator (Ajv 2020 + @iarna/toml) to lint an LCP package before running it:
+
+```bash
+# Validate the foreach control demo from lcod-spec
+npm run validate:lcp -- ../lcod-spec/examples/flow/foreach_ctrl_demo
+
+# Validate a package pointed directly at lcp.toml
+npm run validate:lcp -- ./packages/weather-widget/lcp.toml
+```
+
+The script checks:
+- `lcp.toml` structure against `schema/lcp.schema.json`
+- Presence and JSON validity of referenced `tool.*` and `ui.propsSchema`
+- Presence of docs assets (README/logo when declared)
