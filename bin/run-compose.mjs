@@ -8,6 +8,9 @@ import { flowIf } from '../src/flow/if.js';
 import { flowForeach } from '../src/flow/foreach.js';
 import { flowBreak } from '../src/flow/break.js';
 import { flowContinue } from '../src/flow/continue.js';
+import { flowTry } from '../src/flow/try.js';
+import { flowThrow } from '../src/flow/throw.js';
+import { flowParallel } from '../src/flow/parallel.js';
 import { loadModulesFromMap } from '../src/loaders.js';
 
 function parseArgs(argv) {
@@ -39,6 +42,9 @@ async function main() {
     // Register built-in flow blocks for demo usage
     reg.register('lcod://flow/if@1', flowIf);
     reg.register('lcod://flow/foreach@1', flowForeach);
+    reg.register('lcod://flow/parallel@1', flowParallel);
+    reg.register('lcod://flow/try@1', flowTry);
+    reg.register('lcod://flow/throw@1', flowThrow);
     // continue/break are optional controls for foreach-capable kernels
     if (flowBreak) reg.register('lcod://flow/break@1', flowBreak);
     if (flowContinue) reg.register('lcod://flow/continue@1', flowContinue);

@@ -9,6 +9,7 @@ Includes:
 - JSON Schema validation for `inputSchema` / `outputSchema`
 - Test runner (axiom mocks)
 - Stable API: `Func(ctx, input) -> output`, `Registry`, `Context.call()`
+- Flow operators: `if`, `foreach`, `parallel`, `try/throw`, plus `continue`/`break`
 
 ## Quick demo
 

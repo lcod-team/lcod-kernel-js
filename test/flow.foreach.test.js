@@ -6,6 +6,9 @@ import { registerDemoAxioms } from '../src/axioms.js';
 import { runCompose } from '../src/compose.js';
 import { flowIf } from '../src/flow/if.js';
 import { flowForeach } from '../src/flow/foreach.js';
+import { flowParallel } from '../src/flow/parallel.js';
+import { flowTry } from '../src/flow/try.js';
+import { flowThrow } from '../src/flow/throw.js';
 import { flowBreak } from '../src/flow/break.js';
 import { flowContinue } from '../src/flow/continue.js';
 
@@ -13,6 +16,9 @@ function buildDemoContext() {
   const reg = registerDemoAxioms(new Registry());
   reg.register('lcod://flow/if@1', flowIf);
   reg.register('lcod://flow/foreach@1', flowForeach);
+  reg.register('lcod://flow/parallel@1', flowParallel);
+  reg.register('lcod://flow/try@1', flowTry);
+  reg.register('lcod://flow/throw@1', flowThrow);
   reg.register('lcod://flow/break@1', flowBreak);
   reg.register('lcod://flow/continue@1', flowContinue);
   return new Context(reg);
@@ -124,4 +130,79 @@ test('foreach consumes async stream input', async () => {
 
   const { results } = await runCompose(ctx, compose, { numbers: makeStream() });
   assert.deepEqual(results, [1, 2, 3]);
+});
+
+test('flow throw raises normalized error', async () => {
+  const ctx = buildDemoContext();
+  await assert.rejects(
+    ctx.call('lcod://flow/throw@1', { code: 'boom', message: 'Failure', data: { cause: 'test' } }),
+    err => {
+      assert.equal(err.code, 'boom');
+      assert.equal(err.message, 'Failure');
+      assert.deepEqual(err.data, { cause: 'test' });
+      return true;
+    }
+  );
+});
+
+test('flow try catches errors and runs finally', async () => {
+  const ctx = buildDemoContext();
+  const compose = [
+    {
+      call: 'lcod://flow/try@1',
+      children: {
+        children: [ { call: 'lcod://impl/fail@1' } ],
+        catch: [ { call: 'lcod://impl/set@1', in: { message: '$slot.error.message' }, out: { message: 'message' } } ],
+        finally: [ { call: 'lcod://impl/cleanup@1', out: { cleaned: 'cleaned' } } ]
+      },
+      out: { handled: 'message', cleaned: 'cleaned' }
+    }
+  ];
+
+  const result = await runCompose(ctx, compose, {});
+  assert.deepEqual(result, { handled: 'boom', cleaned: true });
+});
+
+test('flow try rethrows when catch missing', async () => {
+  const ctx = buildDemoContext();
+  const compose = [
+    {
+      call: 'lcod://flow/try@1',
+      children: {
+        children: [ { call: 'lcod://flow/throw@1', in: { message: 'fail', code: 'oops' } } ]
+      }
+    }
+  ];
+
+  await assert.rejects(runCompose(ctx, compose, {}), err => {
+    assert.equal(err.code, 'oops');
+    assert.equal(err.message, 'fail');
+    return true;
+  });
+});
+
+test('flow parallel collects tasks in input order', async () => {
+  const ctx = buildDemoContext();
+  const compose = [
+    {
+      call: 'lcod://flow/parallel@1',
+      in: { tasks: '$.jobs', parallelism: 2 },
+      children: {
+        tasks: [
+          { call: 'lcod://impl/delay@1', in: { value: '$slot.item.value', ms: '$slot.item.ms' }, out: { value: 'value' } }
+        ]
+      },
+      collectPath: '$.value',
+      out: { results: 'results' }
+    }
+  ];
+
+  const jobs = [
+    { value: 'first', ms: 30 },
+    { value: 'second', ms: 0 },
+    { value: 'third', ms: 10 }
+  ];
+
+  const { results } = await runCompose(ctx, compose, { jobs });
+  assert.deepEqual(results, ['first', 'second', 'third']);
 });

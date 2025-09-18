@@ -25,5 +25,13 @@ export function registerDemoAxioms(reg) {
   // demo helper: predicate greater than limit
   reg.register('lcod://impl/gt@1', async (_ctx, { value, limit }) => ({ ok: value > limit }));
 
+  reg.register('lcod://impl/set@1', async (_ctx, input = {}) => ({ ...input }));
+  reg.register('lcod://impl/fail@1', async () => { throw new Error('boom'); });
+  reg.register('lcod://impl/delay@1', async (_ctx, { value, ms = 0 } = {}) => {
+    if (ms > 0) await new Promise(resolve => setTimeout(resolve, ms));
+    return { value };
+  });
+  reg.register('lcod://impl/cleanup@1', async () => ({ cleaned: true }));
+
   return reg;
 }
