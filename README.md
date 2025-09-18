@@ -41,3 +41,21 @@ The script checks:
 - `lcp.toml` structure against `schema/lcp.schema.json`
 - Presence and JSON validity of referenced `tool.*` and `ui.propsSchema`
 - Presence of docs assets (README/logo when declared)
+
+## Resolve dependencies (prototype)
+
+Create a `resolve.config.json` with source mappings and generate a lockfile:
+
+```bash
+cat > resolve.config.json <<'JSON'
+{
+  "sources": {
+    "lcod://core/localisation@1": { "type": "path", "path": "../components/localisation" }
+  }
+}
+JSON
+
+npm run resolve -- --project ../lcod-spec/examples/demo/my_weather --config resolve.config.json
+```
+
+Mappings are optional; unresolved components emit warnings while still producing the lock stub.
