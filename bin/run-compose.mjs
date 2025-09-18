@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import YAML from 'yaml';
 import { Registry, Context } from '../src/registry.js';
 import { runCompose } from '../src/compose.js';
 import { registerDemoAxioms } from '../src/axioms.js';
@@ -28,14 +29,29 @@ function parseArgs(argv) {
 
 function readJson(p) { return JSON.parse(fs.readFileSync(p, 'utf8')); }
 
+function loadComposeFile(p) {
+  const text = fs.readFileSync(p, 'utf8');
+  const ext = path.extname(p).toLowerCase();
+  let data;
+  if (ext === '.yaml' || ext === '.yml') {
+    data = YAML.parse(text);
+  } else {
+    data = JSON.parse(text);
+  }
+  if (!data || !Array.isArray(data.compose)) {
+    throw new Error(`Invalid compose file: ${p}`);
+  }
+  return data.compose;
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   if (!args.compose) {
-    console.error('Usage: run-compose --compose path/to/compose.json [--demo] [--state state.json]');
+    console.error('Usage: run-compose --compose path/to/compose.yaml [--demo] [--state state.json]');
     process.exit(2);
   }
   const composePath = path.resolve(process.cwd(), args.compose);
-  const compose = readJson(composePath).compose || [];
+  const compose = loadComposeFile(composePath);
   const reg = new Registry();
   if (args.demo) {
     registerDemoAxioms(reg);

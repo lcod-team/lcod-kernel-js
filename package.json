@@ -9,6 +9,9 @@
     "test": "node --test test/flow.blocks.test.js",
     "validate:lcp": "node scripts/validate-lcp.mjs"
   },
+  "dependencies": {
+    "yaml": "^2.5.0"
+  },
   "devDependencies": {
     "@iarna/toml": "^3.0.0",
     "ajv": "^8.17.1",
