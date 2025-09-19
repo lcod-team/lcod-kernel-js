@@ -50,7 +50,7 @@ Create a `resolve.config.json` with source mappings and generate a lockfile:
 cat > resolve.config.json <<'JSON'
 {
   "sources": {
-    "lcod://core/localisation@1": { "type": "path", "path": "../components/localisation" }
+    "lcod://tooling/resolver@0.1.0": { "type": "path", "path": "../lcod-spec/examples/tooling/resolver" }
   }
 }
 JSON
