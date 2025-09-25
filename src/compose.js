@@ -27,7 +27,8 @@ function buildInput(bindings, state, slot) {
 }
 
 async function runSteps(ctx, steps, state, slot) {
-  let cur = { ...state };
+  const base = (state && typeof state === 'object' && !Array.isArray(state)) ? state : {};
+  let cur = { ...base };
   for (const step of steps || []) {
     // Normalize single-slot children shorthand (children: [...])
     const children = Array.isArray(step.children)
@@ -38,14 +39,20 @@ async function runSteps(ctx, steps, state, slot) {
     const prevRunChildren = ctx.runChildren;
     const prevRunSlot = ctx.runSlot;
     ctx.runChildren = async (childrenArray, localState, slotVars) => {
+      const baseState = localState == null ? cur : localState;
       ctx._pushScope();
-      try { return await runSteps(ctx, childrenArray || [], localState ?? {}, slotVars ?? slot); }
+      try {
+        return await runSteps(ctx, childrenArray || [], baseState, slotVars ?? slot);
+      }
       finally { await ctx._popScope(); }
     };
     ctx.runSlot = async (name, localState, slotVars) => {
       const arr = (children && (children[name] || (name === 'children' ? children.children : null))) || [];
+      const baseState = localState == null ? cur : localState;
       ctx._pushScope();
-      try { return await runSteps(ctx, arr, localState ?? {}, slotVars ?? slot); }
+      try {
+        return await runSteps(ctx, arr, baseState, slotVars ?? slot);
+      }
       finally { await ctx._popScope(); }
     };
 
@@ -61,12 +68,19 @@ async function runSteps(ctx, steps, state, slot) {
       ctx.runSlot = prevRunSlot;
     }
     for (const [alias, key] of Object.entries(step.out || {})) {
-      cur[alias] = res[key];
+      if (key === '$') {
+        cur[alias] = res;
+      } else {
+        cur[alias] = res?.[key];
+      }
     }
   }
   return cur;
 }
 
 export async function runCompose(ctx, compose, initialState = {}) {
-  return runSteps(ctx, compose || [], initialState, {});
+  const seed = (initialState && typeof initialState === 'object' && !Array.isArray(initialState))
+    ? { ...initialState }
+    : {};
+  return runSteps(ctx, compose || [], seed, {});
 }

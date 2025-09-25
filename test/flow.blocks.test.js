@@ -15,6 +15,7 @@ import { flowTry } from '../src/flow/try.js';
 import { flowThrow } from '../src/flow/throw.js';
 import { flowBreak } from '../src/flow/break.js';
 import { flowContinue } from '../src/flow/continue.js';
+import { registerStreamContracts } from '../src/core/streams.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -42,6 +43,16 @@ async function readSpecYaml(rel) {
   throw new Error(`Unable to locate spec fixture: ${rel}`);
 }
 
+function createChunkStream(ctx) {
+  return ctx.streams.createFromAsyncGenerator(async function* () {
+    yield Buffer.from('123456', 'utf8');
+  }, { encoding: 'utf-8' });
+}
+
+function attemptsBudget(count = 8) {
+  return Array.from({ length: count }, (_, i) => i);
+}
+
 function buildDemoContext() {
   const reg = registerDemoAxioms(new Registry());
   reg.register('lcod://flow/if@1', flowIf);
@@ -51,6 +62,7 @@ function buildDemoContext() {
   reg.register('lcod://flow/throw@1', flowThrow);
   reg.register('lcod://flow/break@1', flowBreak);
   reg.register('lcod://flow/continue@1', flowContinue);
+  registerStreamContracts(reg);
   return new Context(reg);
 }
 
@@ -147,8 +159,16 @@ test('spec foreach ctrl compose runs end-to-end', async () => {
 test('spec foreach stream compose runs end-to-end', async () => {
   const ctx = buildDemoContext();
   const doc = await readSpecYaml('examples/flow/foreach_stream_demo/compose.yaml');
-  const { results } = await runCompose(ctx, doc.compose, { numbers: [1, 2, 3] });
-  assert.deepEqual(results, [1, 2, 3]);
+  const handle = createChunkStream(ctx);
+  const { results } = await runCompose(ctx, doc.compose, {
+    numbers: { stream: handle },
+    attempts: attemptsBudget(10)
+  });
+  assert.deepEqual(results, ['12', '34', '56']);
+  await assert.rejects(
+    ctx.call('lcod://contract/core/stream/read@1', { stream: handle }),
+    /Unknown stream handle/
+  );
 });
 
 test('foreach consumes async stream input', async () => {

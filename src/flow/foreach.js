@@ -43,8 +43,9 @@ export async function flowForeach(ctx, input, meta) {
       // console.error('foreach iter', { index, item, iterState });
       if (meta && meta.collectPath) {
         const val = getByPathRoot(root, meta.collectPath);
-        // console.error('collect', meta.collectPath, '=>', val);
-        results.push(val);
+        if (typeof val !== 'undefined') {
+          results.push(val);
+        }
       } else {
         results.push(item);
       }
