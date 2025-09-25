@@ -62,6 +62,27 @@ test('core/http/request returns stream handle', async () => {
   await new Promise(resolve => server.close(resolve));
 });
 
+test('core/http/request returns buffered body by default', async () => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ hello: 'world' }));
+  });
+  await new Promise(resolve => server.listen(0, resolve));
+  const { port } = server.address();
+
+  const ctx = createContext();
+  const response = await ctx.call('lcod://contract/core/http/request@1', {
+    url: `http://127.0.0.1:${port}`
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.bodyEncoding, 'utf-8');
+  assert.equal(JSON.parse(response.body).hello, 'world');
+  assert.equal(response.stream, undefined);
+
+  await new Promise(resolve => server.close(resolve));
+});
+
 test('core/fs read/write/list', async () => {
   const ctx = createContext();
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-fs-'));
