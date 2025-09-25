@@ -18,6 +18,30 @@ import { flowContinue } from '../src/flow/continue.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+async function readSpecYaml(rel) {
+  const candidates = [
+    process.env.SPEC_REPO_PATH,
+    path.resolve(__dirname, '../../lcod-spec'),
+    path.resolve(__dirname, '../lcod-spec'),
+    path.resolve(__dirname, 'lcod-spec'),
+    path.resolve(__dirname, '../../../lcod-spec'),
+  ].filter(Boolean);
+
+  for (const base of candidates) {
+    const candidate = path.resolve(base, rel);
+    try {
+      await fs.access(candidate);
+      const yamlText = await fs.readFile(candidate, 'utf8');
+      return YAML.parse(yamlText);
+    } catch (err) {
+      if (err?.code !== 'ENOENT') {
+        throw err;
+      }
+    }
+  }
+  throw new Error(`Unable to locate spec fixture: ${rel}`);
+}
+
 function buildDemoContext() {
   const reg = registerDemoAxioms(new Registry());
   reg.register('lcod://flow/if@1', flowIf);
@@ -115,18 +139,14 @@ test('foreach handles continue and break signals', async () => {
 
 test('spec foreach ctrl compose runs end-to-end', async () => {
   const ctx = buildDemoContext();
-  const filePath = path.resolve(__dirname, '../../lcod-spec/examples/flow/foreach_ctrl_demo/compose.yaml');
-  const yamlText = await fs.readFile(filePath, 'utf8');
-  const doc = YAML.parse(yamlText);
+  const doc = await readSpecYaml('examples/flow/foreach_ctrl_demo/compose.yaml');
   const { results } = await runCompose(ctx, doc.compose, { numbers: [1, 2, 3, 8, 9] });
   assert.deepEqual(results, [1, 3]);
 });
 
 test('spec foreach stream compose runs end-to-end', async () => {
   const ctx = buildDemoContext();
-  const filePath = path.resolve(__dirname, '../../lcod-spec/examples/flow/foreach_stream_demo/compose.yaml');
-  const yamlText = await fs.readFile(filePath, 'utf8');
-  const doc = YAML.parse(yamlText);
+  const doc = await readSpecYaml('examples/flow/foreach_stream_demo/compose.yaml');
   const { results } = await runCompose(ctx, doc.compose, { numbers: [1, 2, 3] });
   assert.deepEqual(results, [1, 2, 3]);
 });
