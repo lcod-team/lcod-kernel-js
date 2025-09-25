@@ -6,11 +6,12 @@
   "scripts": {
     "demo": "node src/example.js",
     "compose": "node bin/run-compose.mjs",
-    "test": "node --test test/flow.blocks.test.js",
+    "test": "node --test test/flow.blocks.test.js test/core.contracts.test.js",
     "validate:lcp": "node scripts/validate-lcp.mjs",
     "resolve": "node scripts/resolve.mjs"
   },
   "dependencies": {
+    "csv-parse": "^5.6.0",
     "yaml": "^2.5.0"
   },
   "devDependencies": {

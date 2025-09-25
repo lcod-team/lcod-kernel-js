@@ -8,6 +8,7 @@ import { flowTry } from './flow/try.js';
 import { flowThrow } from './flow/throw.js';
 import { flowBreak } from './flow/break.js';
 import { flowContinue } from './flow/continue.js';
+import { registerNodeCore } from './core/index.js';
 
 async function main() {
   const reg = registerDemoAxioms(new Registry());
@@ -19,6 +20,7 @@ async function main() {
   reg.register('lcod://flow/throw@1', flowThrow);
   reg.register('lcod://flow/break@1', flowBreak);
   reg.register('lcod://flow/continue@1', flowContinue);
+  registerNodeCore(reg);
   const ctx = new Context(reg);
 
   const flow = {

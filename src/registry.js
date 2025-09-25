@@ -15,10 +15,12 @@ export class Registry {
 }
 
 import { getValidator } from './validate.js';
+import { StreamManager } from './core/streams.js';
 
 export class Context {
   constructor(registry) {
     this.registry = registry;
+    this.streams = new StreamManager();
     this.runChildren = async (_childrenArray, _localState, _slotVars) => { throw new Error('runChildren not available in this context'); };
     this.runSlot = async (_slotName, _localState, _slotVars) => { throw new Error('runSlot not available in this context'); };
     // Cleanup scopes for resources
