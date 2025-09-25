@@ -1,5 +1,5 @@
 {
-  "name": "lcod-kernel-ts",
+  "name": "lcod-kernel-js",
   "private": true,
   "version": "0.0.0",
   "type": "module",

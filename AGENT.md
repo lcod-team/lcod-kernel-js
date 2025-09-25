@@ -1,4 +1,4 @@
-# AGENT — lcod-kernel-ts
+# AGENT — lcod-kernel-js
 
 ## Mission
 Deliver a minimal TS kernel compliant with LCP, executable without real network.

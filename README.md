@@ -1,6 +1,6 @@
-# lcod-kernel-ts
+# lcod-kernel-js
 
-Minimal TypeScript kernel to run **LCP** components:
+Minimal JavaScript/TypeScript kernel to run **LCP** components:
 - `axiom` (SDK primitives)
 - `native` (existing implementation)
 - `compose` (chaining child calls with explicit bindings)

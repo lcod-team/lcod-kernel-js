@@ -1,17 +1,24 @@
-# Roadmap — lcod-kernel-ts
+# Roadmap — Node Kernel (lcod-kernel-js)
 
-## M0 — Execution
-- TOML loader for `lcp.toml` + JSON companion files
-- Implement `compose`, `axiom`, `native`
-- `${var}` interpolation + `$.x` memory lookups
-- IO validation (JSON Schema)
+## M0 — Core format
+- [x] Load `lcp.toml` descriptors with strict TOML/JSON parsing and schema validation.
+- [x] Register contracts, implementations and flow primitives in the registry.
+- [x] Execute composite flows with scope resolution (`$`, `$slot.*`) and JSON Schema IO checks.
 
-## M1 — Tests & SDK
-- Axiom mocks (`http.get`, `gps.read`) + test runner
-- Hints/policies (timeout, retry)
-- Basic logging/tracing
+## M1 — Composition & tests
+- [x] Ship the flow operator set (`flow/if@1`, `flow/foreach@1`, `flow/parallel@1`, `flow/try@1`, `flow/throw@1`, `flow/break@1`, `flow/continue@1`).
+- [x] Restore slot helpers for nested flows and support async stream collection + loop control.
+- [x] Provide regression coverage via `node --test` (`test/flow.blocks.test.js`) and the "Node Tests" GitHub Action.
 
-## M2 — Embedding & adapters
-- Library export (`runComponent(id, input, opts)`)
-- Tiny HTTP adapter (Express) and JSON-RPC (MCP-like)
-- Read-only `.lcpkg` execution (offline cache)
+## M2 — Distribution & security
+- [x] Expose the strict validator CLI (`scripts/validate-lcp.mjs`) and wire it into CI.
+- [x] Support `compose.yaml`, resolver prototype (`scripts/resolve.mjs`), and lockfile-aware docs.
+- [x] Integrate with the packaging pipeline (lockfile generation + `.lcpkg` archives).
+
+## M3 — Runtime substrates
+- [ ] M3-01: Consume the spec infrastructure contracts (filesystem, HTTP, Git, hashing, TOML/JSON parsing) in the runtime registry.
+- [ ] M3-02: Publish a Node axiom bundle implementing the M3 contract set (npm package + docs).
+- [ ] M3-03: Execute the resolver composite with the Node axiom bundle and verify lockfile production end-to-end.
+- [ ] M3-04: Define substrate boundaries so additional runtimes (Rust, Java, …) can plug in; document the Node reference implementation.
+- [ ] M3-05: Build a conformance harness comparing Node results against future substrates.
+- [ ] M3-06: Expose the embedded scripting sandbox API (`$api.run`, `$api.config`) with configurable sandboxing.
