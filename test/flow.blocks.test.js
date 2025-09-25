@@ -122,6 +122,15 @@ test('spec foreach ctrl compose runs end-to-end', async () => {
   assert.deepEqual(results, [1, 3]);
 });
 
+test('spec foreach stream compose runs end-to-end', async () => {
+  const ctx = buildDemoContext();
+  const filePath = path.resolve(__dirname, '../../lcod-spec/examples/flow/foreach_stream_demo/compose.yaml');
+  const yamlText = await fs.readFile(filePath, 'utf8');
+  const doc = YAML.parse(yamlText);
+  const { results } = await runCompose(ctx, doc.compose, { numbers: [1, 2, 3] });
+  assert.deepEqual(results, [1, 2, 3]);
+});
+
 test('foreach consumes async stream input', async () => {
   const ctx = buildDemoContext();
   async function* makeStream() {
