@@ -16,7 +16,7 @@
 - [x] Integrate with the packaging pipeline (lockfile generation + `.lcpkg` archives).
 
 ## M3 — Runtime substrates
-- [ ] M3-01: Consume the spec infrastructure contracts (filesystem, HTTP, Git, hashing, TOML/JSON parsing) in the runtime registry.
+- [x] M3-01: Consume the spec infrastructure contracts (filesystem, HTTP, Git, hashing, TOML/JSON parsing) in the runtime registry.
 - [ ] M3-02: Publish a Node axiom bundle implementing the M3 contract set (npm package + docs).
 - [ ] M3-03: Execute the resolver composite with the Node axiom bundle and verify lockfile production end-to-end.
 - [ ] M3-04: Define substrate boundaries so additional runtimes (Rust, Java, …) can plug in; document the Node reference implementation.
