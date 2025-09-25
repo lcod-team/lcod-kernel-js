@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 import { Registry, Context } from '../src/registry.js';
 import { registerDemoAxioms } from '../src/axioms.js';
@@ -11,6 +15,8 @@ import { flowTry } from '../src/flow/try.js';
 import { flowThrow } from '../src/flow/throw.js';
 import { flowBreak } from '../src/flow/break.js';
 import { flowContinue } from '../src/flow/continue.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function buildDemoContext() {
   const reg = registerDemoAxioms(new Registry());
@@ -104,6 +110,15 @@ test('foreach handles continue and break signals', async () => {
   ];
 
   const { results } = await runCompose(ctx, compose, { numbers: [1, 2, 3, 8, 9] });
+  assert.deepEqual(results, [1, 3]);
+});
+
+test('spec foreach ctrl compose runs end-to-end', async () => {
+  const ctx = buildDemoContext();
+  const filePath = path.resolve(__dirname, '../../lcod-spec/examples/flow/foreach_ctrl_demo/compose.yaml');
+  const yamlText = await fs.readFile(filePath, 'utf8');
+  const doc = YAML.parse(yamlText);
+  const { results } = await runCompose(ctx, doc.compose, { numbers: [1, 2, 3, 8, 9] });
   assert.deepEqual(results, [1, 3]);
 });
 
