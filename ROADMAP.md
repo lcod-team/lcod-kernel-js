@@ -21,5 +21,6 @@
 - [ ] M3-03: Execute the resolver composite with the Node axiom bundle and verify lockfile production end-to-end.
 - [ ] M3-04: Define substrate boundaries so additional runtimes (Rust, Java, …) can plug in; document the Node reference implementation.
 - [ ] M3-05: Build a conformance harness comparing Node results against future substrates.
-  - [ ] Consume spec `tooling/test_checker@1` fixtures from CI and expose `npm run test:spec`
+  - [x] Consume spec `tooling/test_checker@1` fixtures from CI and expose `npm run test:spec`
+  - [x] Implement `tooling/script@1` runtime support (Node `vm` sandbox)
 - [ ] M3-06: Expose the embedded scripting sandbox API (`$api.run`, `$api.config`) with configurable sandboxing.
