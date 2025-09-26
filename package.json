@@ -8,6 +8,7 @@
     "compose": "node bin/run-compose.mjs",
     "test": "node --test test/flow.blocks.test.js test/core.contracts.test.js",
     "test:spec": "node scripts/run-spec-tests.mjs",
+    "test:all": "npm test && npm run test:spec",
     "validate:lcp": "node scripts/validate-lcp.mjs",
     "resolve": "node scripts/resolve.mjs"
   },

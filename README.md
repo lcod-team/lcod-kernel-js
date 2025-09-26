@@ -65,7 +65,8 @@ Mappings are optional; unresolved components emit warnings while still producing
 The spec repository now stores reusable fixtures under `tests/spec`. To execute them against the Node kernel:
 
 ```bash
-npm run test:spec
+npm run test:spec   # uniquement les fixtures partagées
+npm run test:all    # tests internes + fixtures spec
 ```
 
 Set `SPEC_REPO_PATH=/path/to/lcod-spec` to override the auto-detected location. The same fixtures are consumed by the Rust kernel via `cargo run --bin test_specs`, keeping runtime behaviour aligned across substrates.

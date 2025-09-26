@@ -26,3 +26,7 @@ jobs:
         run: npm ci
       - name: Run tests
         run: npm test
+      - name: Run spec fixtures
+        env:
+          SPEC_REPO_PATH: ${{ github.workspace }}/lcod-spec
+        run: npm run test:spec
