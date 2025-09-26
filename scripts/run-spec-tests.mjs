@@ -68,7 +68,7 @@ async function runTest(composePath) {
 
 (async () => {
   const specRoot = await locateSpecRepo();
-  const testsRoot = path.join(specRoot, 'examples/tests');
+  const testsRoot = path.join(specRoot, 'tests/spec');
   const entries = await fs.readdir(testsRoot, { withFileTypes: true });
   const results = [];
 

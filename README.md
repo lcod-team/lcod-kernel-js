@@ -59,3 +59,13 @@ npm run resolve -- --project ../lcod-spec/examples/demo/my_weather --config reso
 ```
 
 Mappings are optional; unresolved components emit warnings while still producing the lock stub.
+
+## Run shared spec tests
+
+The spec repository now stores reusable fixtures under `tests/spec`. To execute them against the Node kernel:
+
+```bash
+npm run test:spec
+```
+
+Set `SPEC_REPO_PATH=/path/to/lcod-spec` to override the auto-detected location. The same fixtures are consumed by the Rust kernel via `cargo run --bin test_specs`, keeping runtime behaviour aligned across substrates.
