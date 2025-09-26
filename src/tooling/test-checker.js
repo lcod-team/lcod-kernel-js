@@ -53,6 +53,43 @@ function simpleDiff(actual, expected) {
   ];
 }
 
+function setDeepValue(target, pathString, value) {
+  if (!pathString) return;
+  const parts = pathString.split('.');
+  let cursor = target;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const key = parts[i];
+    if (cursor[key] == null || typeof cursor[key] !== 'object') {
+      cursor[key] = {};
+    }
+    cursor = cursor[key];
+  }
+  cursor[parts[parts.length - 1]] = value;
+}
+
+function decodeChunk(chunk, encoding) {
+  if (encoding === 'base64') return Buffer.from(chunk, 'base64');
+  if (encoding === 'hex') return Buffer.from(chunk, 'hex');
+  return Buffer.from(chunk, encoding === 'utf-8' ? 'utf8' : encoding);
+}
+
+function registerStreams(ctx, initialState, specs = []) {
+  if (!Array.isArray(specs) || !specs.length) return;
+  for (const spec of specs) {
+    if (!spec || typeof spec.target !== 'string' || !Array.isArray(spec.chunks)) continue;
+    const encoding = typeof spec.encoding === 'string' ? spec.encoding.toLowerCase() : 'utf-8';
+    const decoded = spec.chunks.map(chunk => decodeChunk(String(chunk ?? ''), encoding));
+    const handle = ctx.streams.createFromAsyncGenerator(async function* () {
+      for (const chunk of decoded) {
+        yield chunk;
+      }
+    }, { encoding });
+    if (typeof initialState === 'object' && initialState !== null) {
+      setDeepValue(initialState, spec.target, handle);
+    }
+  }
+}
+
 function matchesExpected(actual, expected) {
   if (isDeepStrictEqual(actual, expected)) return true;
   if (
@@ -82,14 +119,17 @@ export function registerTestChecker(registry) {
 
     const composePromise = ensureComposeDefinition(input);
     const initialState = input.input && typeof input.input === 'object' && !Array.isArray(input.input)
-      ? { ...input.input }
-      : (input.input ?? {});
+      ? (typeof structuredClone === 'function' ? structuredClone(input.input) : JSON.parse(JSON.stringify(input.input)))
+      : (typeof input.input === 'undefined' ? {} : input.input);
     const failFast = input.failFast !== undefined ? Boolean(input.failFast) : true;
 
     const registrySnapshot = cloneBindings(ctx.registry);
     applyBindings(ctx.registry, input.bindings);
 
     const childCtx = new Context(ctx.registry);
+    if (typeof initialState === 'object' && initialState !== null) {
+      registerStreams(childCtx, initialState, input.streams);
+    }
 
     let compose;
     try {
