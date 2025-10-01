@@ -13,13 +13,16 @@ import { flowTry } from '../src/flow/try.js';
 import { flowThrow } from '../src/flow/throw.js';
 import { flowParallel } from '../src/flow/parallel.js';
 import { loadModulesFromMap } from '../src/loaders.js';
+import { registerNodeCore, registerNodeResolverAxioms } from '../src/core/index.js';
 
 function parseArgs(argv) {
-  const args = { compose: null, demo: false, state: null, modules: null, bind: null };
+  const args = { compose: null, demo: false, state: null, modules: null, bind: null, core: false, resolver: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--compose' || a === '-c') args.compose = argv[++i];
     else if (a === '--demo') args.demo = true;
+    else if (a === '--core') args.core = true;
+    else if (a === '--resolver') args.resolver = true;
     else if (a === '--state' || a === '-s') args.state = argv[++i];
     else if (a === '--modules' || a === '-m') args.modules = argv[++i];
     else if (a === '--bind' || a === '-b') args.bind = argv[++i];
@@ -53,17 +56,31 @@ async function main() {
   const composePath = path.resolve(process.cwd(), args.compose);
   const compose = loadComposeFile(composePath);
   const reg = new Registry();
-  if (args.demo) {
-    registerDemoAxioms(reg);
-    // Register built-in flow blocks for demo usage
+  if (args.core) {
+    registerNodeCore(reg);
     reg.register('lcod://flow/if@1', flowIf);
     reg.register('lcod://flow/foreach@1', flowForeach);
     reg.register('lcod://flow/parallel@1', flowParallel);
     reg.register('lcod://flow/try@1', flowTry);
     reg.register('lcod://flow/throw@1', flowThrow);
-    // continue/break are optional controls for foreach-capable kernels
     if (flowBreak) reg.register('lcod://flow/break@1', flowBreak);
     if (flowContinue) reg.register('lcod://flow/continue@1', flowContinue);
+  }
+  if (args.demo) {
+    registerDemoAxioms(reg);
+    // Register built-in flow blocks for demo usage
+    if (!args.core) {
+      reg.register('lcod://flow/if@1', flowIf);
+      reg.register('lcod://flow/foreach@1', flowForeach);
+      reg.register('lcod://flow/parallel@1', flowParallel);
+      reg.register('lcod://flow/try@1', flowTry);
+      reg.register('lcod://flow/throw@1', flowThrow);
+      if (flowBreak) reg.register('lcod://flow/break@1', flowBreak);
+      if (flowContinue) reg.register('lcod://flow/continue@1', flowContinue);
+    }
+  }
+  if (args.resolver) {
+    registerNodeResolverAxioms(reg);
   }
   if (args.modules) await loadModulesFromMap(reg, args.modules, { baseDir: process.cwd() });
   if (args.bind) {

@@ -6,7 +6,7 @@
   "scripts": {
     "demo": "node src/example.js",
     "compose": "node bin/run-compose.mjs",
-    "test": "node --test test/flow.blocks.test.js test/core.contracts.test.js",
+    "test": "node --test test/flow.blocks.test.js test/core.contracts.test.js test/tooling.resolver.test.js",
     "test:spec": "node scripts/run-spec-tests.mjs",
     "test:all": "npm test && npm run test:spec",
     "build:core-axioms": "node scripts/build-core-package.mjs",

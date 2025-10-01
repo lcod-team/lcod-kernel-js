@@ -6,7 +6,7 @@ import { Readable } from 'stream';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import crypto from 'crypto';
-import { parse as parseToml } from '@iarna/toml';
+import { parse as parseToml, stringify as stringifyToml } from '@iarna/toml';
 import { parse as parseCsv } from 'csv-parse/sync';
 import { registerStreamContracts, StreamManager } from './streams.js';
 
@@ -322,6 +322,81 @@ export function registerNodeCore(reg) {
       bytes: Buffer.byteLength(text, input.encoding || 'utf-8')
     };
   });
+
+  return reg;
+}
+
+export function registerNodeResolverAxioms(reg) {
+  const aliasContract = (contractId, axiomId) => {
+    const entry = reg.get(contractId);
+    if (!entry) throw new Error(`Contract not registered: ${contractId}`);
+    reg.register(axiomId, entry.fn, {
+      inputSchema: entry.inputSchema,
+      outputSchema: entry.outputSchema,
+      implements: entry.implements
+    });
+  };
+
+  reg.register('lcod://axiom/path/join@1', async (_ctx, input = {}) => {
+    const base = input.base ?? '';
+    const segment = input.segment ?? '';
+    return { path: path.join(base, segment) };
+  });
+
+  reg.register('lcod://axiom/json/parse@1', async (_ctx, input = {}) => {
+    const text = input.text;
+    if (typeof text !== 'string') throw new Error('text is required');
+    return { value: JSON.parse(text) };
+  });
+
+  reg.register('lcod://axiom/toml/parse@1', async (_ctx, input = {}) => {
+    const text = input.text;
+    if (typeof text !== 'string') throw new Error('text is required');
+    return { value: parseToml(text) };
+  });
+
+  reg.register('lcod://axiom/toml/stringify@1', async (_ctx, input = {}) => {
+    const value = input.value ?? {};
+    const text = stringifyToml(value);
+    return { text };
+  });
+
+  reg.register('lcod://axiom/http/download@1', async (_ctx, input = {}) => {
+    const url = input.url;
+    const filePath = input.path;
+    if (!url || !filePath) throw new Error('url and path are required');
+    const init = { method: input.method || 'GET', headers: input.headers || {} };
+    const response = await fetch(url, init);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} when downloading ${url}`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, buffer);
+    const headers = Object.fromEntries(response.headers.entries());
+    return { status: response.status, headers, bytes: buffer.length };
+  });
+
+  aliasContract('lcod://contract/core/fs/read-file@1', 'lcod://axiom/fs/read-file@1');
+  aliasContract('lcod://contract/core/fs/write-file@1', 'lcod://axiom/fs/write-file@1');
+  aliasContract('lcod://contract/core/hash/sha256@1', 'lcod://axiom/hash/sha256@1');
+  aliasContract('lcod://contract/core/git/clone@1', 'lcod://axiom/git/clone@1');
+
+  reg.register('lcod://contract/tooling/resolve-dependency@1', async (_ctx, input = {}) => {
+    const dependency = input.dependency;
+    if (typeof dependency !== 'string' || dependency.length === 0) {
+      throw new Error('dependency is required');
+    }
+    return {
+      resolved: {
+        id: dependency,
+        source: input.config?.sources?.[dependency] || { type: 'mock', reference: dependency }
+      },
+      warnings: []
+    };
+  });
+
+  reg.register('lcod://impl/set@1', async (_ctx, input = {}) => ({ ...input }));
 
   return reg;
 }
