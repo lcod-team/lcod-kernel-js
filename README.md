@@ -70,3 +70,15 @@ npm run test:all    # tests internes + fixtures spec
 ```
 
 Set `SPEC_REPO_PATH=/path/to/lcod-spec` to override the auto-detected location. The same fixtures are consumed by the Rust kernel via `cargo run --bin test_specs`, keeping runtime behaviour aligned across substrates.
+
+## Publish core Node axioms
+
+Reusable contract implementations live under `packages/node-core-axioms`. To
+refresh the distributable files before publishing, run:
+
+```bash
+npm run build:core-axioms
+```
+
+The generated package exposes `registerNodeCore(registry)` so other projects can
+install the axiom bundle without pulling the entire kernel repository.

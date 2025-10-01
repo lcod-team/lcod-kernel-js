@@ -5,6 +5,7 @@ npm-debug.log*
 
 # Build artifacts
 dist/
+!packages/node-core-axioms/dist/
 build/
 .turbo/
 *.tsbuildinfo

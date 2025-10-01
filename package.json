@@ -9,6 +9,7 @@
     "test": "node --test test/flow.blocks.test.js test/core.contracts.test.js",
     "test:spec": "node scripts/run-spec-tests.mjs",
     "test:all": "npm test && npm run test:spec",
+    "build:core-axioms": "node scripts/build-core-package.mjs",
     "validate:lcp": "node scripts/validate-lcp.mjs",
     "resolve": "node scripts/resolve.mjs"
   },
