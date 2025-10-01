@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -18,25 +17,31 @@ import { flowThrow } from '../src/flow/throw.js';
 import { flowBreak } from '../src/flow/break.js';
 import { flowContinue } from '../src/flow/continue.js';
 
-const SPEC_ROOT = (() => {
+async function resolveSpecRoot() {
   const override = process.env.SPEC_REPO_PATH;
   if (override) {
     const abs = path.resolve(override);
-    if (existsSync(abs)) return abs;
+    if (await dirExists(abs)) return abs;
   }
+  const baseDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'lcod-spec'),
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'lcod-spec')
+    path.resolve(baseDir, '..', '..', 'lcod-spec'),
+    path.resolve(baseDir, '..', '..', '..', 'lcod-spec')
   ];
   for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
+    if (await dirExists(candidate)) return candidate;
   }
   return null;
-})();
+}
 
-const RESOLVER_COMPOSE = SPEC_ROOT
-  ? path.join(SPEC_ROOT, 'examples', 'tooling', 'resolver', 'compose.yaml')
-  : null;
+async function dirExists(candidate) {
+  try {
+    const stat = await fs.stat(candidate);
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 async function loadCompose(filePath) {
   const text = await fs.readFile(filePath, 'utf8');
@@ -47,13 +52,14 @@ async function loadCompose(filePath) {
   return parsed.compose;
 }
 
-const skipReason = !RESOLVER_COMPOSE
-  ? 'lcod-spec repository not available (set SPEC_REPO_PATH to override)'
-  : null;
-
-test('tooling/resolver compose runs with node core axioms', { skip: skipReason }, async () => {
-  if (!RESOLVER_COMPOSE) return;
-  const compose = await loadCompose(RESOLVER_COMPOSE);
+test('tooling/resolver compose runs with node core axioms', async (t) => {
+  const specRoot = await resolveSpecRoot();
+  if (!specRoot) {
+    t.skip('lcod-spec repository not available (set SPEC_REPO_PATH to override)');
+    return;
+  }
+  const composePath = path.join(specRoot, 'examples', 'tooling', 'resolver', 'compose.yaml');
+  const compose = await loadCompose(composePath);
   const registry = new Registry();
   registerNodeCore(registry);
   registerNodeResolverAxioms(registry);
@@ -66,7 +72,7 @@ test('tooling/resolver compose runs with node core axioms', { skip: skipReason }
   if (flowContinue) registry.register('lcod://flow/continue@1', flowContinue);
 
   const ctx = new Context(registry);
-  const projectPath = path.join(SPEC_ROOT, 'examples', 'tooling', 'resolver');
+  const projectPath = path.join(specRoot, 'examples', 'tooling', 'resolver');
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-'));
   const outputPath = path.join(tempDir, 'lcp.lock');
   const state = {
