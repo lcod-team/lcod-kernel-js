@@ -76,6 +76,39 @@ function registerStreams(ctx, state, specs) {
   }
 }
 
+function compileFunction(source, sandbox, timeout) {
+  const wrapped = `(${source})`;
+  const script = new vm.Script(wrapped, { displayErrors: true, timeout });
+  const fn = script.runInContext(sandbox, { timeout });
+  if (typeof fn !== 'function') {
+    throw new Error('Script source must evaluate to a function');
+  }
+  return fn;
+}
+
+function buildTools(toolDefs, sandbox, defaultTimeout) {
+  const tools = new Map();
+  if (!Array.isArray(toolDefs)) return tools;
+  for (const def of toolDefs) {
+    if (!def || typeof def.name !== 'string' || typeof def.source !== 'string') continue;
+    const timeout = typeof def.timeoutMs === 'number' ? Math.max(1, def.timeoutMs) : defaultTimeout;
+    try {
+      const fn = compileFunction(def.source, sandbox, timeout);
+      tools.set(def.name, { fn, timeout });
+    } catch (err) {
+      throw new Error(`Failed to compile tool "${def.name}": ${err.message}`);
+    }
+  }
+  return tools;
+}
+
+function normalizeConfigPath(path) {
+  if (typeof path !== 'string' || !path.trim()) return undefined;
+  if (path.startsWith('$.')) return path;
+  if (path.startsWith('$')) return `$.${path.slice(1)}`;
+  return `$.${path}`;
+}
+
 export function registerScriptContract(registry) {
   registry.register('lcod://tooling/script@1', async (ctx, input = {}) => {
     const language = input.language || 'javascript';
@@ -102,39 +135,59 @@ export function registerScriptContract(registry) {
       meta: deepClone(input.meta || {})
     };
 
-    const messages = [];
+    const config = deepClone(input.config || {});
 
-    const api = {
-      call: async (id, args) => ctx.call(id, args ?? {}),
-      runSlot: async (name, state) => {
-        if (typeof ctx.runSlot !== 'function') {
-          throw new Error('runSlot is not available in this context');
-        }
-        return ctx.runSlot(name, state ?? {}, {});
-      },
-      log: (...values) => {
-        messages.push(values.map(v => (typeof v === 'string' ? v : inspect(v))).join(' '));
-      }
-    };
+    const messages = [];
 
     const sandbox = {
       console: {
-        log: (...vals) => api.log(...vals)
+        log: (...vals) => messages.push(vals.map(v => (typeof v === 'string' ? v : inspect(v))).join(' '))
       }
     };
     vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
 
+    const tools = buildTools(input.tools, sandbox, timeout);
+
+    const api = {
+      call: async (id, args) => ctx.call(id, args ?? {}),
+      runSlot: async (name, state, slotVars) => {
+        if (typeof ctx.runSlot !== 'function') {
+          throw new Error('runSlot is not available in this context');
+        }
+        return ctx.runSlot(name, state ?? {}, slotVars ?? {});
+      },
+      log: (...values) => {
+        messages.push(values.map(v => (typeof v === 'string' ? v : inspect(v))).join(' '));
+      },
+      config: (path, fallback) => {
+        if (path == null) return deepClone(config);
+        if (typeof path !== 'string') {
+          throw new Error('api.config path must be a string');
+        }
+        const resolvedPath = normalizeConfigPath(path);
+        if (!resolvedPath) return deepClone(config);
+        const resolved = resolvePath(config, resolvedPath);
+        if (typeof resolved === 'undefined') {
+          return typeof fallback === 'undefined' ? undefined : deepClone(fallback);
+        }
+        return deepClone(resolved);
+      },
+      run: async (name, payload = {}, options = {}) => {
+        const tool = tools.get(name);
+        if (!tool) {
+          throw new Error(`Unknown tool: ${name}`);
+        }
+        const clonedPayload = deepClone(payload);
+        const result = tool.fn(clonedPayload, api);
+        return result && typeof result.then === 'function' ? await result : result;
+      }
+    };
+
     let userFn;
     try {
-      const wrapped = `(${source})`;
-      const script = new vm.Script(wrapped, { displayErrors: true, timeout });
-      userFn = script.runInContext(sandbox, { timeout });
+      userFn = compileFunction(source, sandbox, timeout);
     } catch (err) {
       throw new Error(`Failed to compile script: ${err.message}`);
-    }
-
-    if (typeof userFn !== 'function') {
-      throw new Error('Script source must evaluate to a function');
     }
 
     try {
