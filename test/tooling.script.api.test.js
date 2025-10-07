@@ -49,3 +49,26 @@ test('tooling/script api.run + api.config', async () => {
   const messages = result.messages || [];
   assert.ok(messages.some(msg => msg.includes('doubling')));
 });
+
+test('tooling/script imports aliases call components', async () => {
+  const registry = createRegistry();
+  const ctx = new Context(registry);
+
+  const request = {
+    source: `async ({ imports, input }, api) => {
+      const echoed = await imports.echo({ value: input.payload });
+      const direct = await api.call('lcod://impl/echo@1', { value: echoed.val * 2 });
+      return { value: direct.val };
+    }`,
+    input: { payload: 7 },
+    bindings: {
+      payload: { path: '$.payload' }
+    },
+    imports: {
+      echo: 'lcod://impl/echo@1'
+    }
+  };
+
+  const result = await ctx.call('lcod://tooling/script@1', request, null);
+  assert.equal(result.value, 14);
+});

@@ -86,6 +86,20 @@ function compileFunction(source, sandbox, timeout) {
   return fn;
 }
 
+function buildImports(importMap, ctx) {
+  if (!importMap || typeof importMap !== 'object') return Object.freeze({});
+  const entries = {};
+  for (const [alias, target] of Object.entries(importMap)) {
+    if (typeof alias !== 'string' || !alias) continue;
+    if (typeof target !== 'string' || !target) continue;
+    Object.defineProperty(entries, alias, {
+      enumerable: true,
+      value: async (payload = {}) => ctx.call(target, deepClone(payload))
+    });
+  }
+  return Object.freeze(entries);
+}
+
 function buildTools(toolDefs, sandbox, defaultTimeout) {
   const tools = new Map();
   if (!Array.isArray(toolDefs)) return tools;
@@ -134,6 +148,8 @@ export function registerScriptContract(registry) {
       state: deepClone(initialState),
       meta: deepClone(input.meta || {})
     };
+    const imports = buildImports(input.imports, ctx);
+    scope.imports = imports;
 
     const config = deepClone(input.config || {});
 
@@ -182,6 +198,11 @@ export function registerScriptContract(registry) {
         return result && typeof result.then === 'function' ? await result : result;
       }
     };
+    Object.defineProperty(api, 'imports', {
+      value: imports,
+      writable: false,
+      enumerable: true
+    });
 
     let userFn;
     try {
