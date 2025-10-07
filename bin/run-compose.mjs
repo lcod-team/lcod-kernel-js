@@ -14,15 +14,18 @@ import { flowThrow } from '../src/flow/throw.js';
 import { flowParallel } from '../src/flow/parallel.js';
 import { loadModulesFromMap } from '../src/loaders.js';
 import { registerNodeCore, registerNodeResolverAxioms } from '../src/core/index.js';
+import { registerTooling } from '../src/tooling/index.js';
+import { registerHttpContracts } from '../src/http/index.js';
 
 function parseArgs(argv) {
-  const args = { compose: null, demo: false, state: null, modules: null, bind: null, core: false, resolver: false };
+  const args = { compose: null, demo: false, state: null, modules: null, bind: null, core: false, resolver: false, serve: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--compose' || a === '-c') args.compose = argv[++i];
     else if (a === '--demo') args.demo = true;
     else if (a === '--core') args.core = true;
     else if (a === '--resolver') args.resolver = true;
+    else if (a === '--serve') args.serve = true;
     else if (a === '--state' || a === '-s') args.state = argv[++i];
     else if (a === '--modules' || a === '-m') args.modules = argv[++i];
     else if (a === '--bind' || a === '-b') args.bind = argv[++i];
@@ -47,6 +50,43 @@ function loadComposeFile(p) {
   return data.compose;
 }
 
+function collectHttpHosts(root) {
+  const hosts = [];
+  const queue = [root];
+  const seen = new Set();
+  while (queue.length) {
+    const value = queue.shift();
+    if (!value || typeof value !== 'object') continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    if (value.server && typeof value.server.close === 'function') {
+      hosts.push(value);
+    }
+    for (const item of Array.isArray(value) ? value : Object.values(value)) {
+      if (item && typeof item === 'object') queue.push(item);
+    }
+  }
+  return hosts;
+}
+
+async function stopHost(host) {
+  if (!host) return;
+  if (typeof host.stop === 'function') {
+    try {
+      await host.stop();
+      return;
+    } catch (err) {
+      console.error('Error while stopping host:', err?.message || err);
+      return;
+    }
+  }
+  if (host.server && typeof host.server.close === 'function') {
+    await new Promise((resolve) => {
+      host.server.close(() => resolve());
+    });
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   if (!args.compose) {
@@ -56,6 +96,8 @@ async function main() {
   const composePath = path.resolve(process.cwd(), args.compose);
   const compose = loadComposeFile(composePath);
   const reg = new Registry();
+  registerHttpContracts(reg);
+  registerTooling(reg);
   if (args.core) {
     registerNodeCore(reg);
     reg.register('lcod://flow/if@1', flowIf);
@@ -92,6 +134,26 @@ async function main() {
   const initial = args.state ? readJson(path.resolve(process.cwd(), args.state)) : {};
   const result = await runCompose(ctx, compose, initial);
   console.log(JSON.stringify(result, null, 2));
+
+  const hosts = collectHttpHosts(result);
+  if (!hosts.length) return;
+
+  if (args.serve) {
+    console.log(`Serving ${hosts.length} HTTP host(s). Press Ctrl+C to stop.`);
+    await new Promise((resolve) => {
+      let shuttingDown = false;
+      const shutdown = async () => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        await Promise.all(hosts.map(stopHost));
+        resolve();
+      };
+      process.once('SIGINT', shutdown);
+      process.once('SIGTERM', shutdown);
+    });
+  } else {
+    await Promise.all(hosts.map(stopHost));
+  }
 }
 
 main().catch(err => { console.error(err.stack || String(err)); process.exit(1); });
