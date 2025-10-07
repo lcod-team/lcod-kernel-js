@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import { createReadStream } from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
 import { execFile } from 'child_process';
@@ -11,6 +12,46 @@ import { parse as parseCsv } from 'csv-parse/sync';
 import { registerStreamContracts, StreamManager } from './streams.js';
 
 const execFileAsync = promisify(execFile);
+
+function resolveCacheCandidates(projectPath) {
+  const candidates = [];
+  if (projectPath) candidates.push(path.join(projectPath, '.lcod', 'cache'));
+  if (process.env.LCOD_CACHE_DIR) candidates.push(path.resolve(process.env.LCOD_CACHE_DIR));
+  try {
+    const homeCache = path.join(os.homedir(), '.cache', 'lcod');
+    candidates.push(homeCache);
+  } catch {
+    // homedir not available (non-POSIX env)
+  }
+  return candidates.filter(Boolean);
+}
+
+async function ensureCacheDir(projectPath) {
+  const candidates = resolveCacheCandidates(projectPath);
+  for (const candidate of candidates) {
+    try {
+      await fs.mkdir(candidate, { recursive: true });
+      return candidate;
+    } catch (err) {
+      if (err && err.code === 'EEXIST') {
+        return candidate;
+      }
+    }
+  }
+  const fallback = path.join(projectPath || process.cwd(), '.lcod', 'cache');
+  await fs.mkdir(fallback, { recursive: true });
+  return fallback;
+}
+
+function computeCacheKey(parts) {
+  const hash = crypto.createHash('sha256');
+  hash.update(JSON.stringify(parts));
+  return hash.digest('hex');
+}
+
+function integrityFromBuffer(buffer) {
+  return `sha256-${crypto.createHash('sha256').update(buffer).digest('base64')}`;
+}
 
 function ensureStreamManager(ctx) {
   if (!ctx.streams) ctx.streams = new StreamManager();
@@ -327,6 +368,224 @@ export function registerNodeCore(reg) {
 }
 
 export function registerNodeResolverAxioms(reg) {
+  const deepClone = (value) => (value == null ? value : JSON.parse(JSON.stringify(value)));
+
+  const resolveDependencyRecursive = async (ctx, dependency, config, projectPath, stack, cache, warnings) => {
+    if (cache.has(dependency)) return cache.get(dependency);
+    if (stack.includes(dependency)) {
+      const cycle = [...stack, dependency].join(' -> ');
+      throw new Error(`Dependency cycle detected: ${cycle}`);
+    }
+
+    const nextStack = [...stack, dependency];
+    const sources = config?.sources && typeof config.sources === 'object' ? config.sources : {};
+    let sourceSpec = sources[dependency];
+    if (!sourceSpec) {
+      const resolvedFallback = {
+        id: dependency,
+        source: { type: 'registry', reference: dependency },
+        dependencies: []
+      };
+      cache.set(dependency, resolvedFallback);
+      return resolvedFallback;
+    }
+
+    sourceSpec = deepClone(sourceSpec);
+    const dependencies = [];
+    let integrity = null;
+    let resolvedSource = null;
+
+    const processDescriptor = async (descriptorPath, descriptorText) => {
+      let descriptor;
+      try {
+        descriptor = parseToml(descriptorText);
+      } catch (err) {
+        warnings.push(`Failed to parse ${descriptorPath} for ${dependency}: ${err.message}`);
+        return;
+      }
+      const childIds = Array.isArray(descriptor?.deps?.requires) ? descriptor.deps.requires : [];
+      for (const child of childIds) {
+        if (typeof child !== 'string' || child.length === 0) continue;
+        const resolvedChild = await resolveDependencyRecursive(ctx, child, config, projectPath, nextStack, cache, warnings);
+        dependencies.push(resolvedChild);
+      }
+    };
+
+    if (sourceSpec.type === 'path') {
+      const sourcePath = typeof sourceSpec.path === 'string' ? sourceSpec.path : '.';
+      const absPath = path.isAbsolute(sourcePath)
+        ? sourcePath
+        : path.resolve(projectPath, sourcePath);
+      resolvedSource = { type: 'path', path: absPath };
+      const descriptorPath = path.join(absPath, 'lcp.toml');
+      let descriptorText = null;
+      try {
+        descriptorText = await fs.readFile(descriptorPath, 'utf8');
+      } catch (err) {
+        warnings.push(`Failed to load ${descriptorPath} for ${dependency}: ${err.message}`);
+      }
+      if (descriptorText != null) {
+        integrity = integrityFromBuffer(Buffer.from(descriptorText, 'utf8'));
+        await processDescriptor(descriptorPath, descriptorText);
+      }
+    } else if (sourceSpec.type === 'git') {
+      const url = typeof sourceSpec.url === 'string' ? sourceSpec.url : null;
+      if (!url) {
+        warnings.push(`Missing git url for ${dependency}; defaulting to registry reference.`);
+        resolvedSource = { type: 'registry', reference: dependency };
+      } else {
+        const ref = sourceSpec.ref || sourceSpec.rev || null;
+        const subdir = sourceSpec.subdir || null;
+        const depth = sourceSpec.depth;
+        const cacheRoot = await ensureCacheDir(projectPath);
+        const cacheKey = computeCacheKey({ type: 'git', dependency, url, ref, subdir });
+        const repoBase = path.join(cacheRoot, 'git', cacheKey);
+        await fs.mkdir(repoBase, { recursive: true });
+        const descriptorRoot = subdir ? path.join(repoBase, subdir) : repoBase;
+        const descriptorPath = path.join(descriptorRoot, 'lcp.toml');
+        let needClone = Boolean(sourceSpec.force);
+        try {
+          await fs.access(descriptorPath);
+        } catch {
+          needClone = true;
+        }
+
+        let commit = sourceSpec.commit || null;
+        let fetchedAt = null;
+        const metadataPath = path.join(repoBase, '.lcod-source.json');
+
+        if (needClone) {
+          await fs.rm(repoBase, { recursive: true, force: true });
+          await fs.mkdir(path.dirname(repoBase), { recursive: true });
+          const cloneInput = { url, dest: repoBase };
+          if (ref) cloneInput.ref = ref;
+          if (depth) cloneInput.depth = depth;
+          if (subdir) cloneInput.subdir = subdir;
+          if (sourceSpec.auth) cloneInput.auth = sourceSpec.auth;
+          try {
+            const cloneResult = await ctx.call('lcod://contract/core/git/clone@1', cloneInput);
+            if (cloneResult && typeof cloneResult === 'object') {
+              commit = cloneResult.commit || commit;
+              fetchedAt = cloneResult?.source?.fetchedAt || new Date().toISOString();
+            }
+          } catch (err) {
+            warnings.push(`Failed to clone ${url} for ${dependency}: ${err.message}`);
+          }
+          if (commit) {
+            const metadata = {
+              url,
+              commit,
+              ref: ref || null,
+              fetchedAt: fetchedAt || new Date().toISOString(),
+              subdir: subdir || null
+            };
+            await fs.mkdir(path.dirname(metadataPath), { recursive: true });
+            await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf8');
+          }
+        } else {
+          try {
+            const metadataText = await fs.readFile(metadataPath, 'utf8');
+            const metadata = JSON.parse(metadataText);
+            commit = metadata.commit || commit;
+            fetchedAt = metadata.fetchedAt || fetchedAt;
+          } catch {
+            // best-effort metadata read
+          }
+        }
+
+        let descriptorText = null;
+        try {
+          descriptorText = await fs.readFile(descriptorPath, 'utf8');
+        } catch (err) {
+          warnings.push(`Failed to load ${descriptorPath} for ${dependency}: ${err.message}`);
+        }
+        if (descriptorText != null) {
+          integrity = integrityFromBuffer(Buffer.from(descriptorText, 'utf8'));
+          await processDescriptor(descriptorPath, descriptorText);
+        }
+
+        resolvedSource = {
+          type: 'git',
+          url,
+          path: descriptorRoot
+        };
+        if (ref) resolvedSource.ref = ref;
+        if (commit) resolvedSource.commit = commit;
+        if (fetchedAt) resolvedSource.fetchedAt = fetchedAt;
+      }
+    } else if (sourceSpec.type === 'http') {
+      const url = typeof sourceSpec.url === 'string' ? sourceSpec.url : null;
+      if (!url) {
+        warnings.push(`Missing http url for ${dependency}; defaulting to registry reference.`);
+        resolvedSource = { type: 'registry', reference: dependency };
+      } else {
+        const cacheRoot = await ensureCacheDir(projectPath);
+        const cacheKey = computeCacheKey({ type: 'http', dependency, url, method: sourceSpec.method || 'GET' });
+        const targetDir = path.join(cacheRoot, 'http', cacheKey);
+        await fs.mkdir(targetDir, { recursive: true });
+        const defaultName = (() => {
+          try {
+            const urlObj = new URL(url);
+            const base = path.basename(urlObj.pathname);
+            return base && base !== '/' ? base : 'artifact';
+          } catch {
+            return 'artifact';
+          }
+        })();
+        const filename = typeof sourceSpec.filename === 'string' && sourceSpec.filename.length > 0 ? sourceSpec.filename : defaultName;
+        const targetPath = path.join(targetDir, filename);
+        let needDownload = Boolean(sourceSpec.force);
+        if (!needDownload) {
+          try {
+            await fs.access(targetPath);
+          } catch {
+            needDownload = true;
+          }
+        }
+        if (needDownload) {
+          const downloadInput = { url, path: targetPath };
+          for (const key of ['method', 'headers', 'query', 'timeoutMs', 'followRedirects', 'body', 'bodyEncoding']) {
+            if (sourceSpec[key] !== undefined) downloadInput[key] = sourceSpec[key];
+          }
+          try {
+            await ctx.call('lcod://axiom/http/download@1', downloadInput);
+          } catch (err) {
+            warnings.push(`Failed to download ${url} for ${dependency}: ${err.message}`);
+          }
+        }
+        const descriptorRel = typeof sourceSpec.descriptorPath === 'string' && sourceSpec.descriptorPath.length > 0
+          ? sourceSpec.descriptorPath
+          : '';
+        const descriptorPath = descriptorRel ? path.join(targetDir, descriptorRel) : targetPath;
+        let descriptorText = null;
+        try {
+          descriptorText = await fs.readFile(descriptorPath, 'utf8');
+        } catch (err) {
+          warnings.push(`Failed to load ${descriptorPath} for ${dependency}: ${err.message}`);
+        }
+        if (descriptorText != null) {
+          integrity = integrityFromBuffer(Buffer.from(descriptorText, 'utf8'));
+          await processDescriptor(descriptorPath, descriptorText);
+        }
+        resolvedSource = {
+          type: 'http',
+          url,
+          path: descriptorRel ? path.dirname(descriptorPath) : descriptorPath
+        };
+      }
+    } else if (typeof sourceSpec.type !== 'string') {
+      warnings.push(`Unknown source type for ${dependency}; defaulting to registry reference.`);
+      resolvedSource = { type: 'registry', reference: dependency };
+    } else {
+      resolvedSource = sourceSpec;
+    }
+
+    const resolved = { id: dependency, source: resolvedSource, dependencies };
+    if (integrity) resolved.integrity = integrity;
+    cache.set(dependency, resolved);
+    return resolved;
+  };
+
   const aliasContract = (contractId, axiomId) => {
     const entry = reg.get(contractId);
     if (!entry) throw new Error(`Contract not registered: ${contractId}`);
@@ -387,12 +646,15 @@ export function registerNodeResolverAxioms(reg) {
     if (typeof dependency !== 'string' || dependency.length === 0) {
       throw new Error('dependency is required');
     }
+    const config = input.config && typeof input.config === 'object' ? input.config : {};
+    const projectPath = input.projectPath ? path.resolve(input.projectPath) : process.cwd();
+    const stack = Array.isArray(input.stack) ? input.stack.map(String) : [];
+    const cache = new Map();
+    const warnings = [];
+    const resolved = await resolveDependencyRecursive(_ctx, dependency, config, projectPath, stack, cache, warnings);
     return {
-      resolved: {
-        id: dependency,
-        source: input.config?.sources?.[dependency] || { type: 'mock', reference: dependency }
-      },
-      warnings: []
+      resolved,
+      warnings
     };
   });
 
