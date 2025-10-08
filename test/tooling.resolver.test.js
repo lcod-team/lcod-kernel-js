@@ -102,7 +102,7 @@ test('resolver example compose produces lockfile', async (t) => {
   await fs.rm(tempDir, { recursive: true, force: true });
 });
 
-test('resolver compose resolves local path dependency', async () => {
+test('resolver compose resolves local path dependency', async (t) => {
   const registry = createRegistry();
   const ctx = new Context(registry);
   const tempProject = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-path-'));
@@ -146,7 +146,11 @@ test('resolver compose resolves local path dependency', async () => {
       'utf8'
     );
 
-    const composePath = await resolveResolverComposePath();
+    const composePath = await resolveResolverComposePath({ required: false });
+    if (!composePath) {
+      t.skip('resolver compose.yaml unavailable');
+      return;
+    }
     const compose = await loadCompose(composePath);
     const outputPath = path.join(tempProject, 'lcp.lock');
     const state = {
@@ -173,7 +177,7 @@ test('resolver compose resolves local path dependency', async () => {
   }
 });
 
-test('resolver compose handles git sources with cache dir', async () => {
+test('resolver compose handles git sources with cache dir', async (t) => {
   const registry = createRegistry();
   const ctx = new Context(registry);
   const tempProject = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-git-'));
@@ -225,7 +229,11 @@ test('resolver compose handles git sources with cache dir', async () => {
       'utf8'
     );
 
-    const composePath = await resolveResolverComposePath();
+    const composePath = await resolveResolverComposePath({ required: false });
+    if (!composePath) {
+      t.skip('resolver compose.yaml unavailable');
+      return;
+    }
     const compose = await loadCompose(composePath);
     const outputPath = path.join(tempProject, 'lcp.lock');
     const state = {

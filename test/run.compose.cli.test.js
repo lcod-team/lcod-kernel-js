@@ -14,8 +14,13 @@ import { resolveResolverComposePath } from './helpers/resolver.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-test('run-compose resolver CLI wires project/output/cache flags', async () => {
+test('run-compose resolver CLI wires project/output/cache flags', async (t) => {
   const repoRoot = path.resolve(__dirname, '..');
+  const composePath = await resolveResolverComposePath({ required: false });
+  if (!composePath) {
+    t.skip('resolver compose.yaml unavailable');
+    return;
+  }
   const tempProject = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-cli-'));
   try {
     const projectToml = [
@@ -31,7 +36,6 @@ test('run-compose resolver CLI wires project/output/cache flags', async () => {
     ].join('\n');
     await fs.writeFile(path.join(tempProject, 'lcp.toml'), projectToml, 'utf8');
 
-    const composePath = await resolveResolverComposePath();
     const outputLock = path.join(tempProject, 'custom.lock');
     const cacheDir = path.join(tempProject, 'cache-dir');
 
