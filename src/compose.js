@@ -1,3 +1,5 @@
+import { normalizeCompose } from './compose/normalizer.js';
+
 // Compose runner with basic slots and foreach (array). Sequential for simplicity.
 
 function getByPathRoot(rootObj, pathStr) {
@@ -115,5 +117,6 @@ export async function runCompose(ctx, compose, initialState = {}) {
   const seed = (initialState && typeof initialState === 'object' && !Array.isArray(initialState))
     ? { ...initialState }
     : {};
-  return runSteps(ctx, compose || [], seed, {});
+  const normalized = normalizeCompose(compose || []);
+  return runSteps(ctx, normalized, seed, {});
 }
