@@ -6,31 +6,74 @@ import { Registry, Context } from '../registry.js';
 import { runSteps } from './runtime.js';
 import { registerTooling } from '../tooling/index.js';
 
-const specRoot = process.env.LCOD_SPEC_PATH
-  ? path.resolve(process.env.LCOD_SPEC_PATH)
-  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'lcod-spec');
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(moduleDir, '..', '..');
 
-const normalizerComposePath = path.join(
-  specRoot,
-  'tooling',
-  'compose',
-  'normalize',
-  'compose.yaml'
-);
+let composePathPromise;
+
+async function resolveComposePath() {
+  if (!composePathPromise) {
+    composePathPromise = (async () => {
+      const candidates = [];
+      if (process.env.LCOD_SPEC_PATH) {
+        candidates.push(
+          path.resolve(
+            process.env.LCOD_SPEC_PATH,
+            'tooling',
+            'compose',
+            'normalize',
+            'compose.yaml'
+          )
+        );
+      }
+      candidates.push(
+        path.resolve(
+          repoRoot,
+          '..',
+          'lcod-spec',
+          'tooling',
+          'compose',
+          'normalize',
+          'compose.yaml'
+        )
+      );
+      candidates.push(path.join(repoRoot, 'resources', 'compose', 'normalize', 'compose.yaml'));
+
+      for (const candidate of candidates) {
+        try {
+          await fs.access(candidate);
+          return candidate;
+        } catch (err) {
+          if (err && err.code !== 'ENOENT') {
+            throw err;
+          }
+        }
+      }
+
+      throw new Error(
+        `Unable to locate compose normalizer component. Searched: ${candidates.join(', ')}`
+      );
+    })();
+  }
+  return composePathPromise;
+}
 
 let cachedStepsPromise;
 async function loadNormalizerSteps() {
   if (!cachedStepsPromise) {
     cachedStepsPromise = (async () => {
+      const composePath = await resolveComposePath();
       let raw;
       try {
-        raw = await fs.readFile(normalizerComposePath, 'utf8');
+        raw = await fs.readFile(composePath, 'utf8');
       } catch (err) {
-        throw new Error(`Unable to read compose normalizer component at ${normalizerComposePath}: ${err.message || err}`);
+        throw new Error(
+          `Unable to read compose normalizer component at ${composePath}: ${err.message || err}`
+        );
       }
       const doc = YAML.parse(raw);
       if (!doc || !Array.isArray(doc.compose)) {
-        throw new Error(`Invalid compose file for normalizer: ${normalizerComposePath}`);
+        throw new Error(`Invalid compose file for normalizer: ${composePath}`);
       }
       return doc.compose;
     })();
