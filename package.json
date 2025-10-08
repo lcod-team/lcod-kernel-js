@@ -13,7 +13,8 @@
     "demo:http": "node bin/run-compose.mjs --core --serve --compose ../lcod-spec/examples/env/http_demo/compose.yaml",
     "build:core-axioms": "node scripts/build-core-package.mjs",
     "validate:lcp": "node scripts/validate-lcp.mjs",
-    "resolve": "node scripts/resolve.mjs"
+    "resolve": "node scripts/resolve.mjs",
+    "compose:normalize": "node scripts/normalize-compose.mjs"
   },
   "dependencies": {
     "csv-parse": "^5.6.0",
