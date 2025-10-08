@@ -29,4 +29,4 @@
 - [ ] Implement CLI support for `--assemble` to bundle `lcp.lock` + `lcod_modules/` (Node compose + deps).
 - [ ] Prototype `--ship` (kernel + launcher) and document runtime embedding options.
 - [ ] Explore `--build` targets (Node pkg/GraalVM or other distribution tooling) and record limitations.
-- [ ] Consommer le composant partagé `tooling/compose/normalize@1` pour gérer la syntaxe sugar côté loader avant d'exécuter le compose canonique.
+- [x] Consume the shared `tooling/compose/normalize@1` component so the loader expands sugar before executing the canonical compose.

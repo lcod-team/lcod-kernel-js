@@ -1,57 +1,57 @@
-function isPlainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
+import { Registry, Context } from '../registry.js';
+import { runSteps } from './runtime.js';
+import { registerTooling } from '../tooling/index.js';
+
+const specRoot = process.env.LCOD_SPEC_PATH
+  ? path.resolve(process.env.LCOD_SPEC_PATH)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'lcod-spec');
+
+const normalizerComposePath = path.join(
+  specRoot,
+  'tooling',
+  'compose',
+  'normalize',
+  'compose.yaml'
+);
+
+let cachedStepsPromise;
+async function loadNormalizerSteps() {
+  if (!cachedStepsPromise) {
+    cachedStepsPromise = (async () => {
+      let raw;
+      try {
+        raw = await fs.readFile(normalizerComposePath, 'utf8');
+      } catch (err) {
+        throw new Error(`Unable to read compose normalizer component at ${normalizerComposePath}: ${err.message || err}`);
+      }
+      const doc = YAML.parse(raw);
+      if (!doc || !Array.isArray(doc.compose)) {
+        throw new Error(`Invalid compose file for normalizer: ${normalizerComposePath}`);
+      }
+      return doc.compose;
+    })();
+  }
+  return cachedStepsPromise;
 }
 
-function normalizeMappings(map, { type, depth = 0 }) {
-  const result = {};
-  for (const [key, rawValue] of Object.entries(map)) {
-    if (rawValue === '-' && depth === 0) {
-      result[key] = type === 'input' ? `$.${key}` : key;
-      continue;
-    }
-
-    if (isPlainObject(rawValue)) {
-      result[key] = normalizeMappings(rawValue, { type, depth: depth + 1 });
-      continue;
-    }
-
-    if (Array.isArray(rawValue)) {
-      result[key] = rawValue.map((item) =>
-        isPlainObject(item) ? normalizeMappings(item, { type, depth: depth + 1 }) : item
-      );
-      continue;
-    }
-
-    result[key] = rawValue;
+let sharedRegistry;
+function getRegistry() {
+  if (!sharedRegistry) {
+    const reg = registerTooling(new Registry());
+    reg.register('lcod://impl/set@1', async (_ctx, input = {}) => ({ ...input }));
+    sharedRegistry = reg;
   }
-  return result;
+  return sharedRegistry;
 }
 
-function normalizeStep(step) {
-  const normalized = { ...step };
-
-  if (step.in && isPlainObject(step.in)) {
-    normalized.in = normalizeMappings(step.in, { type: 'input' });
-  }
-
-  if (step.out && isPlainObject(step.out)) {
-    normalized.out = normalizeMappings(step.out, { type: 'output' });
-  }
-
-  if (Array.isArray(step.children)) {
-    normalized.children = step.children.map(normalizeStep);
-  } else if (step.children && isPlainObject(step.children)) {
-    const children = {};
-    for (const [slot, value] of Object.entries(step.children)) {
-      children[slot] = Array.isArray(value) ? value.map(normalizeStep) : value;
-    }
-    normalized.children = children;
-  }
-
-  return normalized;
-}
-
-export function normalizeCompose(compose) {
+export async function normalizeCompose(compose) {
   if (!Array.isArray(compose)) return compose;
-  return compose.map(normalizeStep);
+  const [steps, registry] = await Promise.all([loadNormalizerSteps(), getRegistry()]);
+  const ctx = new Context(registry);
+  const result = await runSteps(ctx, steps, { compose }, {});
+  return Array.isArray(result.compose) ? result.compose : [];
 }

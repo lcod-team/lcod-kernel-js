@@ -1,12 +1,5 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const normalizerPath = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../lcod-spec/tooling/compose/normalize/compose.yaml'
-);
 
 async function main() {
   const [, , inputPath, outputPath] = process.argv;
@@ -16,8 +9,8 @@ async function main() {
   }
 
   const composeData = JSON.parse(await fs.readFile(inputPath, 'utf8'));
-  const normalizeModule = await import('../lcod-kernel-js/src/compose/normalizer.js');
-  const normalized = normalizeModule.normalizeCompose(composeData.compose || []);
+  const { normalizeCompose } = await import('../src/compose/normalizer.js');
+  const normalized = await normalizeCompose(composeData.compose || []);
 
   const payload = { compose: normalized };
   if (outputPath) {
