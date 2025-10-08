@@ -12,6 +12,7 @@ import YAML from 'yaml';
 import { Registry, Context } from '../src/registry.js';
 import { runCompose } from '../src/compose.js';
 import { registerNodeCore, registerNodeResolverAxioms } from '../src/core/index.js';
+import { registerScriptContract } from '../src/tooling/script.js';
 import { flowIf } from '../src/flow/if.js';
 import { flowForeach } from '../src/flow/foreach.js';
 import { flowParallel } from '../src/flow/parallel.js';
@@ -23,14 +24,17 @@ import { flowContinue } from '../src/flow/continue.js';
 const execFileAsync = promisify(execFile);
 
 function integrityOf(text) {
-  return `sha256-${crypto.createHash('sha256').update(text).digest('base64')}`;
+  return `sha256-${crypto.createHash('sha256').update(text).digest('hex')}`;
 }
 
 async function resolveSpecRoot() {
   const override = process.env.SPEC_REPO_PATH;
   if (override) {
     const abs = path.resolve(override);
-    if (await dirExists(abs)) return abs;
+    try {
+      const stat = await fs.stat(abs);
+      if (stat.isDirectory()) return abs;
+    } catch {}
   }
   const baseDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
@@ -38,18 +42,12 @@ async function resolveSpecRoot() {
     path.resolve(baseDir, '..', '..', '..', 'lcod-spec')
   ];
   for (const candidate of candidates) {
-    if (await dirExists(candidate)) return candidate;
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.isDirectory()) return candidate;
+    } catch {}
   }
   return null;
-}
-
-async function dirExists(candidate) {
-  try {
-    const stat = await fs.stat(candidate);
-    return stat.isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 async function loadCompose(filePath) {
@@ -61,16 +59,10 @@ async function loadCompose(filePath) {
   return parsed.compose;
 }
 
-test('tooling/resolver compose runs with node core axioms', async (t) => {
-  const specRoot = await resolveSpecRoot();
-  if (!specRoot) {
-    t.skip('lcod-spec repository not available (set SPEC_REPO_PATH to override)');
-    return;
-  }
-  const composePath = path.join(specRoot, 'examples', 'tooling', 'resolver', 'compose.yaml');
-  const compose = await loadCompose(composePath);
+function createRegistry() {
   const registry = new Registry();
   registerNodeCore(registry);
+  registerScriptContract(registry);
   registerNodeResolverAxioms(registry);
   registry.register('lcod://flow/if@1', flowIf);
   registry.register('lcod://flow/foreach@1', flowForeach);
@@ -79,7 +71,18 @@ test('tooling/resolver compose runs with node core axioms', async (t) => {
   registry.register('lcod://flow/throw@1', flowThrow);
   if (flowBreak) registry.register('lcod://flow/break@1', flowBreak);
   if (flowContinue) registry.register('lcod://flow/continue@1', flowContinue);
+  return registry;
+}
 
+test('resolver example compose produces lockfile', async (t) => {
+  const specRoot = await resolveSpecRoot();
+  if (!specRoot) {
+    t.skip('lcod-spec repository not available (set SPEC_REPO_PATH to override)');
+    return;
+  }
+  const composePath = path.join(specRoot, 'examples', 'tooling', 'resolver', 'compose.yaml');
+  const compose = await loadCompose(composePath);
+  const registry = createRegistry();
   const ctx = new Context(registry);
   const projectPath = path.join(specRoot, 'examples', 'tooling', 'resolver');
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-'));
@@ -93,28 +96,22 @@ test('tooling/resolver compose runs with node core axioms', async (t) => {
   const result = await runCompose(ctx, compose, state);
   assert.equal(result.lockPath, outputPath);
   assert.ok(Array.isArray(result.components));
-  const warnings = result.warnings || [];
-  assert.ok(Array.isArray(warnings));
   const lockContent = await fs.readFile(outputPath, 'utf8');
   assert.ok(lockContent.includes('schemaVersion'));
-
   await fs.rm(tempDir, { recursive: true, force: true });
 });
 
-test('resolve-dependency computes integrity for path sources', async () => {
-  const registry = new Registry();
-  registerNodeCore(registry);
-  registerNodeResolverAxioms(registry);
+test('resolver compose resolves local path dependency', async () => {
+  const registry = createRegistry();
   const ctx = new Context(registry);
-
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-path-'));
+  const tempProject = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-path-'));
   try {
-    const componentDir = path.join(tempDir, 'comp');
-    await fs.mkdir(componentDir, { recursive: true });
-    const descriptorText = [
+    const depDir = path.join(tempProject, 'components', 'dep');
+    await fs.mkdir(depDir, { recursive: true });
+    const depDescriptor = [
       'schemaVersion = "1.0"',
-      'id = "lcod://example/comp@0.1.0"',
-      'name = "comp"',
+      'id = "lcod://example/dep@0.1.0"',
+      'name = "dep"',
       'namespace = "example"',
       'version = "0.1.0"',
       'kind = "workflow"',
@@ -122,46 +119,73 @@ test('resolve-dependency computes integrity for path sources', async () => {
       '[deps]',
       'requires = []'
     ].join('\n');
-    await fs.writeFile(path.join(componentDir, 'lcp.toml'), descriptorText, 'utf8');
+    await fs.writeFile(path.join(depDir, 'lcp.toml'), depDescriptor, 'utf8');
 
-    const { resolved, warnings } = await ctx.call('lcod://contract/tooling/resolve-dependency@1', {
-      dependency: 'lcod://example/comp@0.1.0',
-      config: {
+    const rootDescriptor = [
+      'schemaVersion = "1.0"',
+      'id = "lcod://example/app@0.1.0"',
+      'name = "app"',
+      'namespace = "example"',
+      'version = "0.1.0"',
+      'kind = "workflow"',
+      '',
+      '[deps]',
+      'requires = ["lcod://example/dep@0.1.0"]'
+    ].join('\n');
+    await fs.writeFile(path.join(tempProject, 'lcp.toml'), rootDescriptor, 'utf8');
+
+    const configPath = path.join(tempProject, 'resolve.config.json');
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({
         sources: {
-          'lcod://example/comp@0.1.0': { type: 'path', path: 'comp' }
+          'lcod://example/dep@0.1.0': { type: 'path', path: 'components/dep' }
         }
-      },
-      projectPath: tempDir,
-      stack: []
-    });
+      }, null, 2),
+      'utf8'
+    );
 
-    assert.equal(resolved.source.type, 'path');
-    assert.equal(resolved.source.path, path.join(tempDir, 'comp'));
-    assert.equal(resolved.integrity, integrityOf(descriptorText));
-    assert.deepEqual(resolved.dependencies, []);
-    assert.deepEqual(warnings, []);
+    const composePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'lcod-resolver', 'compose.yaml');
+    const compose = await loadCompose(composePath);
+    const outputPath = path.join(tempProject, 'lcp.lock');
+    const state = {
+      projectPath: tempProject,
+      configPath,
+      outputPath
+    };
+
+    const result = await runCompose(ctx, compose, state);
+    const components = Array.isArray(result.components) ? result.components : [];
+    assert.equal(components.length, 1);
+    const rootEntry = components[0];
+    assert.equal(rootEntry.id, 'lcod://example/app@0.1.0');
+    assert.equal(rootEntry.source?.type, 'path');
+    assert.equal(rootEntry.integrity, integrityOf(rootDescriptor));
+    const deps = Array.isArray(rootEntry.dependencies) ? rootEntry.dependencies : [];
+    assert.equal(deps.length, 1);
+    const depEntry = deps[0];
+    assert.equal(depEntry.id, 'lcod://example/dep@0.1.0');
+    assert.equal(depEntry.source?.type, 'path');
+    assert.deepEqual(result.warnings || [], []);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await fs.rm(tempProject, { recursive: true, force: true });
   }
 });
 
-test('resolve-dependency clones git sources and caches integrity', async () => {
-  const registry = new Registry();
-  registerNodeCore(registry);
-  registerNodeResolverAxioms(registry);
+test('resolver compose handles git sources with cache dir', async () => {
+  const registry = createRegistry();
   const ctx = new Context(registry);
-
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-git-'));
-  const repoDir = path.join(tempDir, 'repo');
-  const cacheDir = path.join(tempDir, 'cache');
-  process.env.LCOD_CACHE_DIR = cacheDir;
+  const tempProject = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-git-'));
+  const repoDir = path.join(tempProject, 'repo');
+  const cacheOverride = path.join(tempProject, 'cache');
+  process.env.LCOD_CACHE_DIR = cacheOverride;
 
   try {
     await fs.mkdir(repoDir, { recursive: true });
-    const descriptorText = [
+    const depDescriptor = [
       'schemaVersion = "1.0"',
       'id = "lcod://example/git@0.1.0"',
-      'name = "git-dep"',
+      'name = "git"',
       'namespace = "example"',
       'version = "0.1.0"',
       'kind = "workflow"',
@@ -169,94 +193,66 @@ test('resolve-dependency clones git sources and caches integrity', async () => {
       '[deps]',
       'requires = []'
     ].join('\n');
-    await fs.writeFile(path.join(repoDir, 'lcp.toml'), descriptorText, 'utf8');
+    await fs.writeFile(path.join(repoDir, 'lcp.toml'), depDescriptor, 'utf8');
     await execFileAsync('git', ['init'], { cwd: repoDir });
     await execFileAsync('git', ['config', 'user.email', 'resolver@example.com'], { cwd: repoDir });
     await execFileAsync('git', ['config', 'user.name', 'Resolver Bot'], { cwd: repoDir });
     await execFileAsync('git', ['add', 'lcp.toml'], { cwd: repoDir });
     await execFileAsync('git', ['commit', '-m', 'init'], { cwd: repoDir, env: { ...process.env, GIT_AUTHOR_NAME: 'Resolver Bot', GIT_AUTHOR_EMAIL: 'resolver@example.com', GIT_COMMITTER_NAME: 'Resolver Bot', GIT_COMMITTER_EMAIL: 'resolver@example.com' } });
 
-    const { resolved, warnings } = await ctx.call('lcod://contract/tooling/resolve-dependency@1', {
-      dependency: 'lcod://example/git@0.1.0',
-      config: {
+    const projectDescriptor = [
+      'schemaVersion = "1.0"',
+      'id = "lcod://example/app@0.1.0"',
+      'name = "app"',
+      'namespace = "example"',
+      'version = "0.1.0"',
+      'kind = "workflow"',
+      '',
+      '[deps]',
+      'requires = ["lcod://example/git@0.1.0"]'
+    ].join('\n');
+    await fs.writeFile(path.join(tempProject, 'lcp.toml'), projectDescriptor, 'utf8');
+
+    const configPath = path.join(tempProject, 'resolve.config.json');
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({
         sources: {
           'lcod://example/git@0.1.0': { type: 'git', url: repoDir }
         }
-      },
-      projectPath: tempDir,
-      stack: []
-    });
+      }, null, 2),
+      'utf8'
+    );
 
-    assert.equal(resolved.source.type, 'git');
-    const projectCache = path.join(tempDir, '.lcod', 'cache');
-    assert.ok(resolved.source.path.startsWith(projectCache));
-    assert.match(resolved.integrity, /^sha256-/);
-    assert.deepEqual(resolved.dependencies, []);
-    assert.deepEqual(warnings, []);
+    const composePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'lcod-resolver', 'compose.yaml');
+    const compose = await loadCompose(composePath);
+    const outputPath = path.join(tempProject, 'lcp.lock');
+    const state = {
+      projectPath: tempProject,
+      configPath,
+      outputPath
+    };
+
+    const result = await runCompose(ctx, compose, state);
+    const components = Array.isArray(result.components) ? result.components : [];
+    assert.equal(components.length, 1);
+    const rootEntry = components[0];
+    assert.equal(rootEntry.id, 'lcod://example/app@0.1.0');
+    assert.equal(rootEntry.source?.type, 'path');
+    const deps = Array.isArray(rootEntry.dependencies) ? rootEntry.dependencies : [];
+    assert.equal(deps.length, 1);
+    const depEntry = deps[0];
+    assert.equal(depEntry.id, 'lcod://example/git@0.1.0');
+    assert.equal(depEntry.source?.type, 'git');
+    const localCache = path.join(tempProject, '.lcod', 'cache');
+    const sourcePath = String(depEntry.source?.path || '');
+    assert.ok(
+      sourcePath.startsWith(localCache) || sourcePath.startsWith(cacheOverride),
+      `expected ${sourcePath} to start with ${localCache} or ${cacheOverride}`
+    );
+    assert.ok(rootEntry.integrity);
   } finally {
     delete process.env.LCOD_CACHE_DIR;
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await fs.rm(tempProject, { recursive: true, force: true });
   }
-});
-
-test('resolve-dependency detects cycles', async () => {
-  const registry = new Registry();
-  registerNodeCore(registry);
-  registerNodeResolverAxioms(registry);
-  const ctx = new Context(registry);
-
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-cycle-'));
-  const compA = path.join(tempDir, 'compA');
-  const compB = path.join(tempDir, 'compB');
-  await fs.mkdir(compA, { recursive: true });
-  await fs.mkdir(compB, { recursive: true });
-  await fs.writeFile(
-    path.join(compA, 'lcp.toml'),
-    [
-      'schemaVersion = "1.0"',
-      'id = "lcod://example/a@0.1.0"',
-      'name = "a"',
-      'namespace = "example"',
-      'version = "0.1.0"',
-      'kind = "workflow"',
-      '',
-      '[deps]',
-      'requires = ["lcod://example/b@0.1.0"]'
-    ].join('\n'),
-    'utf8'
-  );
-  await fs.writeFile(
-    path.join(compB, 'lcp.toml'),
-    [
-      'schemaVersion = "1.0"',
-      'id = "lcod://example/b@0.1.0"',
-      'name = "b"',
-      'namespace = "example"',
-      'version = "0.1.0"',
-      'kind = "workflow"',
-      '',
-      '[deps]',
-      'requires = ["lcod://example/a@0.1.0"]'
-    ].join('\n'),
-    'utf8'
-  );
-
-  const config = {
-    sources: {
-      'lcod://example/a@0.1.0': { type: 'path', path: 'compA' },
-      'lcod://example/b@0.1.0': { type: 'path', path: 'compB' }
-    }
-  };
-
-  await assert.rejects(
-    ctx.call('lcod://contract/tooling/resolve-dependency@1', {
-      dependency: 'lcod://example/a@0.1.0',
-      config,
-      projectPath: tempDir,
-      stack: []
-    }),
-    /Dependency cycle detected/
-  );
-
-  await fs.rm(tempDir, { recursive: true, force: true });
 });

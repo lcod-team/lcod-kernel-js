@@ -18,7 +18,20 @@ import { registerTooling } from '../src/tooling/index.js';
 import { registerHttpContracts } from '../src/http/index.js';
 
 function parseArgs(argv) {
-  const args = { compose: null, demo: false, state: null, modules: null, bind: null, core: false, resolver: false, serve: false };
+  const args = {
+    compose: null,
+    demo: false,
+    state: null,
+    modules: null,
+    bind: null,
+    core: false,
+    resolver: false,
+    serve: false,
+    project: null,
+    config: null,
+    output: null,
+    cacheDir: null
+  };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--compose' || a === '-c') args.compose = argv[++i];
@@ -29,6 +42,10 @@ function parseArgs(argv) {
     else if (a === '--state' || a === '-s') args.state = argv[++i];
     else if (a === '--modules' || a === '-m') args.modules = argv[++i];
     else if (a === '--bind' || a === '-b') args.bind = argv[++i];
+    else if (a === '--project') args.project = argv[++i];
+    else if (a === '--config') args.config = argv[++i];
+    else if (a === '--output') args.output = argv[++i];
+    else if (a === '--cache-dir') args.cacheDir = argv[++i];
   }
   return args;
 }
@@ -89,6 +106,9 @@ async function stopHost(host) {
 
 async function main() {
   const args = parseArgs(process.argv);
+  if (args.resolver && !args.core) {
+    args.core = true;
+  }
   if (!args.compose) {
     console.error('Usage: run-compose --compose path/to/compose.yaml [--demo] [--state state.json]');
     process.exit(2);
@@ -131,7 +151,28 @@ async function main() {
     reg.setBindings(bindings);
   }
   const ctx = new Context(reg);
-  const initial = args.state ? readJson(path.resolve(process.cwd(), args.state)) : {};
+  let initial = args.state ? readJson(path.resolve(process.cwd(), args.state)) : {};
+  if (args.resolver) {
+    const state = { ...initial };
+    const resolvedProject = args.project
+      ? path.resolve(process.cwd(), args.project)
+      : (typeof state.projectPath === 'string' && state.projectPath
+          ? path.resolve(process.cwd(), state.projectPath)
+          : process.cwd());
+    state.projectPath = resolvedProject;
+    if (args.config) {
+      state.configPath = path.resolve(process.cwd(), args.config);
+    }
+    if (args.output) {
+      state.outputPath = path.resolve(process.cwd(), args.output);
+    } else if (!state.outputPath) {
+      state.outputPath = path.join(resolvedProject, 'lcp.lock');
+    }
+    if (args.cacheDir) {
+      process.env.LCOD_CACHE_DIR = path.resolve(process.cwd(), args.cacheDir);
+    }
+    initial = state;
+  }
   const result = await runCompose(ctx, compose, initial);
   console.log(JSON.stringify(result, null, 2));
 

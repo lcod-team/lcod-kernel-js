@@ -11,17 +11,50 @@ function getByPathRoot(rootObj, pathStr) {
   return cur;
 }
 
+function isStepDefinition(value) {
+  return Boolean(value && typeof value === 'object' && typeof value.call === 'string');
+}
+
 function resolveValue(v, state, slot) {
+  if (Array.isArray(v)) {
+    return v.map(item => (isStepDefinition(item) ? item : resolveValue(item, state, slot)));
+  }
+  if (v && typeof v === 'object') {
+    if (isStepDefinition(v)) return v;
+    const out = {};
+    for (const [key, value] of Object.entries(v)) {
+      if (key === 'bindings') {
+        out[key] = cloneLiteral(value);
+      } else {
+        out[key] = resolveValue(value, state, slot);
+      }
+    }
+    return out;
+  }
   if (typeof v !== 'string') return v;
   if (v.startsWith('$.')) return getByPathRoot({ $: state }, v);
   if (v.startsWith('$slot.')) return getByPathRoot({ $slot: slot || {} }, v);
   return v;
 }
 
+function cloneLiteral(value) {
+  if (Array.isArray(value)) {
+    return value.map(cloneLiteral);
+  }
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = cloneLiteral(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 function buildInput(bindings, state, slot) {
   const out = {};
   for (const [k, v] of Object.entries(bindings || {})) {
-    out[k] = resolveValue(v, state, slot);
+    out[k] = k === 'bindings' ? cloneLiteral(v) : resolveValue(v, state, slot);
   }
   return out;
 }

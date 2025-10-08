@@ -6,7 +6,7 @@
   "scripts": {
     "demo": "node src/example.js",
     "compose": "node bin/run-compose.mjs",
-    "test": "node --test test/flow.blocks.test.js test/core.contracts.test.js test/tooling.resolver.test.js test/tooling.script.api.test.js test/http.host.test.js",
+    "test": "node --test test/flow.blocks.test.js test/core.contracts.test.js test/tooling.resolver.test.js test/tooling.script.api.test.js test/http.host.test.js test/run.compose.cli.test.js",
     "test:spec": "node scripts/run-spec-tests.mjs",
     "test:conformance": "node scripts/run-spec-tests.mjs --manifest ../lcod-spec/tests/conformance/manifest.json",
     "test:all": "npm test && npm run test:spec && npm run test:conformance",
