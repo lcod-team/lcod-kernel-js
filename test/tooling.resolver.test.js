@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { resolveResolverComposePath } from './helpers/resolver.js';
 
 import { Registry, Context } from '../src/registry.js';
 import { runCompose } from '../src/compose.js';
@@ -145,7 +146,7 @@ test('resolver compose resolves local path dependency', async () => {
       'utf8'
     );
 
-    const composePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'lcod-resolver', 'compose.yaml');
+    const composePath = await resolveResolverComposePath();
     const compose = await loadCompose(composePath);
     const outputPath = path.join(tempProject, 'lcp.lock');
     const state = {
@@ -224,7 +225,7 @@ test('resolver compose handles git sources with cache dir', async () => {
       'utf8'
     );
 
-    const composePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'lcod-resolver', 'compose.yaml');
+    const composePath = await resolveResolverComposePath();
     const compose = await loadCompose(composePath);
     const outputPath = path.join(tempProject, 'lcp.lock');
     const state = {

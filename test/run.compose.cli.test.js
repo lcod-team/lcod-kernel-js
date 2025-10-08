@@ -9,6 +9,8 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
+import { resolveResolverComposePath } from './helpers/resolver.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -29,7 +31,7 @@ test('run-compose resolver CLI wires project/output/cache flags', async () => {
     ].join('\n');
     await fs.writeFile(path.join(tempProject, 'lcp.toml'), projectToml, 'utf8');
 
-    const composePath = path.resolve(repoRoot, '..', 'lcod-resolver', 'compose.yaml');
+    const composePath = await resolveResolverComposePath();
     const outputLock = path.join(tempProject, 'custom.lock');
     const cacheDir = path.join(tempProject, 'cache-dir');
 
