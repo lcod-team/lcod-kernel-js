@@ -14,6 +14,10 @@ function setupRegistry() {
   registry.register('lcod://impl/demo/error@1', async () => {
     throw new Error('boom');
   });
+  registry.register('lcod://helper/register-scoped@1', async (ctx) => {
+    ctx.registry.register('lcod://helper/scoped-temp@1', async () => ({ result: 'scoped-helper' }));
+    return {};
+  });
   registry.setBindings({
     'lcod://contract/demo/value@1': 'lcod://impl/demo/base@1'
   });
@@ -85,4 +89,29 @@ test('registry scope restores bindings even when children fail', async () => {
 
   const verification = await runCompose(ctx, verifyCompose, {});
   assert.equal(verification.value, 'base');
+});
+
+test('registry scope isolates helper registrations', async () => {
+  const registry = setupRegistry();
+  const ctx = new Context(registry);
+
+  const compose = [
+    {
+      call: 'lcod://tooling/registry/scope@1',
+      children: [
+        { call: 'lcod://helper/register-scoped@1' },
+        {
+          call: 'lcod://helper/scoped-temp@1',
+          out: { scoped: 'result' }
+        }
+      ],
+      out: { scopeResult: 'scoped' }
+    }
+  ];
+
+  const result = await runCompose(ctx, compose, {});
+  assert.equal(result.scopeResult, 'scoped-helper');
+
+  assert.equal(registry.get('lcod://helper/scoped-temp@1'), undefined);
+  await assert.rejects(() => ctx.call('lcod://helper/scoped-temp@1', {}), /Func not found/);
 });

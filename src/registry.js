@@ -25,7 +25,7 @@ export class Context {
     this.runSlot = async (_slotName, _localState, _slotVars) => { throw new Error('runSlot not available in this context'); };
     // Cleanup scopes for resources
     this._scopeStack = [];
-    this._registryBindingStack = [];
+    this._registryScopeStack = [];
   }
   defer(fn) {
     if (!this._scopeStack.length) this._scopeStack.push([]);
@@ -71,9 +71,13 @@ export class Context {
   }
 
   enterRegistryScope(options = {}) {
-    const current = { ...(this.registry.bindings || {}) };
-    this._registryBindingStack.push(current);
-    const merged = { ...current };
+    const snapshot = {
+      bindings: { ...(this.registry.bindings || {}) },
+      funcs: this.registry.funcs
+    };
+    this._registryScopeStack.push(snapshot);
+
+    const merged = { ...snapshot.bindings };
     if (options && typeof options.bindings === 'object' && options.bindings !== null) {
       for (const [contractId, implementationId] of Object.entries(options.bindings)) {
         if (typeof contractId === 'string' && typeof implementationId === 'string') {
@@ -82,14 +86,19 @@ export class Context {
       }
     }
     this.registry.bindings = merged;
+    this.registry.funcs = new Map(this.registry.funcs);
   }
 
   leaveRegistryScope() {
-    const previous = this._registryBindingStack.pop();
+    const previous = this._registryScopeStack.pop();
     if (previous) {
-      this.registry.bindings = previous;
-    } else if (!this.registry.bindings) {
+      this.registry.bindings = previous.bindings;
+      this.registry.funcs = previous.funcs;
+    } else {
       this.registry.bindings = {};
+      if (!(this.registry.funcs instanceof Map)) {
+        this.registry.funcs = new Map();
+      }
     }
   }
 }
