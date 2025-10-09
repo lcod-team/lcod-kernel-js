@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
+import TOML from '@iarna/toml';
 import { Registry, Context } from '../src/registry.js';
 import { runCompose } from '../src/compose.js';
 import { registerDemoAxioms } from '../src/axioms.js';
@@ -64,7 +65,105 @@ function loadComposeFile(p) {
   if (!data || !Array.isArray(data.compose)) {
     throw new Error(`Invalid compose file: ${p}`);
   }
+  const context = loadWorkspaceContext(path.dirname(p));
+  canonicalizeCompose(data.compose, context);
   return data.compose;
+}
+
+function loadWorkspaceContext(dir) {
+  const manifestPath = path.join(dir, 'lcp.toml');
+  if (!fs.existsSync(manifestPath)) return null;
+  try {
+    const manifest = TOML.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const id = typeof manifest.id === 'string' ? manifest.id : null;
+    const version = typeof manifest.version === 'string'
+      ? manifest.version
+      : (id && id.includes('@') ? id.split('@')[1] : null);
+    let basePath = null;
+    if (id && id.startsWith('lcod://')) {
+      basePath = id.slice('lcod://'.length).split('@')[0];
+    } else {
+      const ns = typeof manifest.namespace === 'string' ? manifest.namespace : '';
+      const name = typeof manifest.name === 'string' ? manifest.name : '';
+      basePath = [ns, name].filter(Boolean).join('/');
+    }
+    const aliasMap = manifest.workspace?.scopeAliases && typeof manifest.workspace.scopeAliases === 'object'
+      ? { ...manifest.workspace.scopeAliases }
+      : {};
+    if (!basePath || !version) {
+      return { basePath: '', version: version || '0.0.0', aliasMap };
+    }
+    return { basePath, version, aliasMap };
+  } catch (err) {
+    console.warn(`Failed to parse manifest for compose in ${dir}: ${err.message || err}`);
+    return null;
+  }
+}
+
+function canonicalizeCompose(steps, context) {
+  if (!context || !context.basePath || !context.version) return steps;
+  if (!Array.isArray(steps)) return steps;
+  for (const step of steps) {
+    canonicalizeStep(step, context);
+  }
+  return steps;
+}
+
+function canonicalizeStep(step, context) {
+  if (!step || typeof step !== 'object') return;
+  if (typeof step.call === 'string') {
+    step.call = canonicalizeId(step.call, context);
+  }
+  if (step.children) {
+    if (Array.isArray(step.children)) {
+      for (const child of step.children) canonicalizeStep(child, context);
+    } else if (typeof step.children === 'object') {
+      for (const key of Object.keys(step.children)) {
+        const branch = step.children[key];
+        if (Array.isArray(branch)) {
+          for (const child of branch) canonicalizeStep(child, context);
+        } else if (branch && typeof branch === 'object') {
+          canonicalizeValue(branch, context);
+        }
+      }
+    }
+  }
+  if (step.in) canonicalizeValue(step.in, context);
+  if (step.out) canonicalizeValue(step.out, context);
+  if (step.bindings) canonicalizeValue(step.bindings, context);
+}
+
+function canonicalizeValue(value, context) {
+  if (!value) return;
+  if (Array.isArray(value)) {
+    for (const item of value) canonicalizeValue(item, context);
+    return;
+  }
+  if (typeof value !== 'object') return;
+  if (typeof value.call === 'string') {
+    canonicalizeStep(value, context);
+    return;
+  }
+  for (const key of Object.keys(value)) {
+    canonicalizeValue(value[key], context);
+  }
+}
+
+function canonicalizeId(raw, context) {
+  if (typeof raw !== 'string') return raw;
+  if (raw.startsWith('lcod://')) return raw;
+  const segments = raw.replace(/^\.\//, '').split('/').filter(Boolean);
+  if (segments.length === 0) return raw;
+  const alias = segments[0];
+  const mapped = context.aliasMap?.[alias] ?? alias;
+  const remainder = segments.slice(1);
+  const parts = [];
+  if (context.basePath) parts.push(context.basePath);
+  if (mapped) parts.push(mapped);
+  if (remainder.length) parts.push(...remainder);
+  if (!parts.length) return raw;
+  const version = context.version || '0.0.0';
+  return `lcod://${parts.join('/')}` + `@${version}`;
 }
 
 function collectHttpHosts(root) {

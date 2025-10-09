@@ -34,6 +34,7 @@ function buildCandidates() {
     );
   }
   list.push(
+    path.resolve(repoRoot, '..', 'lcod-resolver', 'packages', 'resolver', 'compose.yaml'),
     path.resolve(repoRoot, '..', 'lcod-resolver', 'compose.yaml'),
     path.resolve(repoRoot, '..', 'lcod-spec', 'resources', 'compose', 'resolver', 'compose.yaml')
   );

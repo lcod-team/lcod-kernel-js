@@ -1,75 +1,260 @@
-import fs from 'node:fs/promises';
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { parse as parseToml } from '@iarna/toml';
 import { runSteps } from '../compose/runtime.js';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, '..', '..');
 
-const helperDefs = [
-  {
-    id: 'lcod://resolver/internal/load-descriptor@1',
-    segments: ['components', 'internal', 'load_descriptor', 'compose.yaml']
-  },
-  {
-    id: 'lcod://resolver/internal/load-config@1',
-    segments: ['components', 'internal', 'load_config', 'compose.yaml']
-  },
-  {
-    id: 'lcod://resolver/internal/lock-path@1',
-    segments: ['components', 'internal', 'lock_path', 'compose.yaml']
-  },
-  {
-    id: 'lcod://resolver/internal/prepare-config@1',
-    segments: ['components', 'internal', 'prepare_config', 'compose.yaml']
-  },
-  {
-    id: 'lcod://resolver/internal/prepare-cache@1',
-    segments: ['components', 'internal', 'prepare_cache', 'compose.yaml']
-  },
-  {
-    id: 'lcod://resolver/internal/resolve-dependencies@1',
-    segments: ['components', 'internal', 'resolve_dependencies', 'compose.yaml']
-  },
-  {
-    id: 'lcod://resolver/internal/summarize-result@1',
-    segments: ['components', 'internal', 'summarize_result', 'compose.yaml']
-  },
-  {
-    id: 'lcod://resolver/internal/build-lock@1',
-    segments: ['components', 'internal', 'build_lock', 'compose.yaml']
-  }
-];
-
+const helperDefs = buildHelperDefinitions();
 const cache = new Map();
 
-async function loadHelper(def) {
-  const key = def.segments.join('/');
-  if (cache.has(key)) return cache.get(key);
+function buildHelperDefinitions() {
+  const candidates = gatherResolverCandidates();
+  for (const candidate of candidates) {
+    const defs = loadDefinitionsForCandidate(candidate);
+    if (defs.length > 0) return defs;
+  }
+  return [];
+}
 
-  const candidates = [];
+function gatherResolverCandidates() {
+  const out = [];
   if (process.env.LCOD_RESOLVER_COMPONENTS_PATH) {
-    candidates.push(path.resolve(process.env.LCOD_RESOLVER_COMPONENTS_PATH, ...def.segments));
+    out.push({ type: 'components', path: path.resolve(process.env.LCOD_RESOLVER_COMPONENTS_PATH) });
   }
   if (process.env.LCOD_RESOLVER_PATH) {
-    candidates.push(path.resolve(process.env.LCOD_RESOLVER_PATH, ...def.segments));
+    out.push({ type: 'root', path: path.resolve(process.env.LCOD_RESOLVER_PATH) });
   }
-  candidates.push(path.resolve(repoRoot, '..', 'lcod-resolver', ...def.segments));
-  // Legacy fallback while specs transition away from embedded helpers
-  candidates.push(
-    path.resolve(repoRoot, '..', 'lcod-spec', 'tooling', 'resolver', def.segments[2], 'compose.yaml')
-  );
+  out.push({ type: 'root', path: path.resolve(repoRoot, '..', 'lcod-resolver') });
+  out.push({ type: 'legacy', path: path.resolve(repoRoot, '..', 'lcod-spec', 'tooling', 'resolver') });
+  return out;
+}
 
+function loadDefinitionsForCandidate(candidate) {
+  switch (candidate.type) {
+    case 'root': {
+      const workspaceDefs = loadWorkspaceDefinitions(candidate.path);
+      if (workspaceDefs.length > 0) return workspaceDefs;
+      const componentsDir = path.join(candidate.path, 'components');
+      return loadLegacyComponentDefinitions(componentsDir);
+    }
+    case 'components':
+      return loadLegacyComponentDefinitions(candidate.path);
+    case 'legacy':
+      return loadLegacyComponentDefinitions(candidate.path);
+    default:
+      return [];
+  }
+}
+
+function loadWorkspaceDefinitions(rootPath) {
+  const workspacePath = path.join(rootPath, 'workspace.lcp.toml');
+  if (!fs.existsSync(workspacePath)) return [];
+  let workspaceDoc;
+  try {
+    workspaceDoc = parseToml(fs.readFileSync(workspacePath, 'utf8'));
+  } catch (err) {
+    console.warn(`Failed to parse workspace manifest at ${workspacePath}: ${err.message || err}`);
+    return [];
+  }
+  const workspace = workspaceDoc?.workspace || {};
+  const packages = Array.isArray(workspace.packages) ? workspace.packages : [];
+  if (packages.length === 0) return [];
+  const aliasMap = workspace.scopeAliases && typeof workspace.scopeAliases === 'object'
+    ? workspace.scopeAliases
+    : {};
+  const defs = [];
+  for (const pkgName of packages) {
+    if (typeof pkgName !== 'string' || !pkgName) continue;
+    const pkgDir = path.join(rootPath, 'packages', pkgName);
+    const manifestPath = path.join(pkgDir, 'lcp.toml');
+    if (!fs.existsSync(manifestPath)) continue;
+    let manifest;
+    try {
+      manifest = parseToml(fs.readFileSync(manifestPath, 'utf8'));
+    } catch (err) {
+      console.warn(`Failed to parse package manifest at ${manifestPath}: ${err.message || err}`);
+      continue;
+    }
+    const context = createWorkspaceContext(manifest, aliasMap);
+    const workspaceComponents = manifest?.workspace?.components;
+    if (!Array.isArray(workspaceComponents)) continue;
+    for (const entry of workspaceComponents) {
+      if (!entry || typeof entry.id !== 'string' || typeof entry.path !== 'string') continue;
+      const componentDir = path.join(pkgDir, entry.path);
+      const composePath = path.join(componentDir, 'compose.yaml');
+      if (!fs.existsSync(composePath)) continue;
+      const canonicalId = canonicalizeId(entry.id, context);
+      const def = {
+        id: canonicalId,
+        composePath,
+        context,
+        cacheKey: `${canonicalId}::${composePath}`,
+        aliases: []
+      };
+      const componentManifestPath = path.join(componentDir, 'lcp.toml');
+      if (fs.existsSync(componentManifestPath)) {
+        try {
+          const compManifest = parseToml(fs.readFileSync(componentManifestPath, 'utf8'));
+          if (compManifest?.id && compManifest.id !== canonicalId) {
+            def.aliases.push(compManifest.id);
+          }
+        } catch (_err) {
+          // ignore malformed component manifest
+        }
+      }
+      defs.push(def);
+    }
+  }
+  return defs;
+}
+
+function createWorkspaceContext(manifest, aliasMap) {
+  const id = typeof manifest?.id === 'string' ? manifest.id : null;
+  const version = typeof manifest?.version === 'string'
+    ? manifest.version
+    : (id ? extractVersion(id) : undefined);
+  const basePath = id ? extractPath(id) : buildPathFromFields(manifest);
+  return {
+    basePath,
+    version,
+    aliasMap: aliasMap || {}
+  };
+}
+
+function extractPath(id) {
+  const match = /^lcod:\/\/(.+)@/.exec(id);
+  return match ? match[1] : null;
+}
+
+function extractVersion(id) {
+  const match = /@([^@]+)$/.exec(id);
+  return match ? match[1] : null;
+}
+
+function buildPathFromFields(manifest) {
+  const ns = typeof manifest?.namespace === 'string' && manifest.namespace.length
+    ? manifest.namespace
+    : null;
+  const name = typeof manifest?.name === 'string' ? manifest.name : null;
+  return [ns, name].filter(Boolean).join('/');
+}
+
+function loadLegacyComponentDefinitions(componentsDir) {
+  if (!componentsDir || !fs.existsSync(componentsDir)) return [];
+  const entries = fs.readdirSync(componentsDir, { withFileTypes: true });
+  const defs = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const componentDir = path.join(componentsDir, entry.name);
+    const composePath = path.join(componentDir, 'compose.yaml');
+    if (!fs.existsSync(composePath)) continue;
+    const manifestPath = path.join(componentDir, 'lcp.toml');
+    let componentId;
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifest = parseToml(fs.readFileSync(manifestPath, 'utf8'));
+        componentId = manifest?.id;
+      } catch (_err) {
+        // ignore malformed manifest
+      }
+    }
+    if (!componentId || typeof componentId !== 'string') {
+      // Skip components without an explicit ID — cannot register reliably
+      continue;
+    }
+    defs.push({
+      id: componentId,
+      composePath,
+      context: {
+        basePath: extractPath(componentId)?.split('/').slice(0, -1).join('/') || null,
+        version: extractVersion(componentId),
+        aliasMap: {}
+      },
+      cacheKey: `${componentId}::${composePath}`,
+      aliases: []
+    });
+  }
+  return defs;
+}
+
+function canonicalizeId(rawId, context) {
+  if (!rawId || typeof rawId !== 'string') return rawId;
+  if (rawId.startsWith('lcod://')) return rawId;
+  const cleaned = rawId.replace(/^\.\//, '');
+  const segments = cleaned.split('/').filter(Boolean);
+  if (segments.length === 0) return rawId;
+  const alias = segments[0];
+  const mapped = context?.aliasMap?.[alias] ?? alias;
+  const remainder = segments.slice(1);
+  const base = context?.basePath ? [context.basePath] : [];
+  const full = [...base, mapped, ...remainder].filter(Boolean).join('/');
+  const version = context?.version || '0.0.0';
+  return `lcod://${full}@${version}`;
+}
+
+function canonicalizeSteps(steps, context) {
+  if (!Array.isArray(steps)) return steps;
+  return steps.map(step => canonicalizeStep(step, context));
+}
+
+function canonicalizeStep(step, context) {
+  if (!step || typeof step !== 'object') return step;
+  const out = { ...step };
+  if (typeof out.call === 'string') {
+    out.call = canonicalizeId(out.call, context);
+  }
+  if (out.children) {
+    if (Array.isArray(out.children)) {
+      out.children = canonicalizeSteps(out.children, context);
+    } else {
+      const children = {};
+      for (const [slot, branch] of Object.entries(out.children)) {
+        children[slot] = canonicalizeSteps(Array.isArray(branch) ? branch : [], context);
+      }
+      out.children = children;
+    }
+  }
+  if (out.in) out.in = canonicalizeValue(out.in, context);
+  if (out.out) out.out = canonicalizeValue(out.out, context);
+  if (out.bindings) out.bindings = canonicalizeValue(out.bindings, context);
+  return out;
+}
+
+function canonicalizeValue(value, context) {
+  if (Array.isArray(value)) return value.map(item => canonicalizeValue(item, context));
+  if (value && typeof value === 'object') {
+    if (typeof value.call === 'string') {
+      return canonicalizeStep(value, context);
+    }
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = canonicalizeValue(v, context);
+    }
+    return out;
+  }
+  return value;
+}
+
+async function loadHelper(def) {
+  const key = def.cacheKey || def.id;
+  if (cache.has(key)) return cache.get(key);
+
+  const candidates = [def.composePath];
   let lastError;
   for (const candidate of candidates) {
     try {
-      const raw = await fs.readFile(candidate, 'utf8');
+      const raw = await fsp.readFile(candidate, 'utf8');
       const doc = YAML.parse(raw);
       if (!doc || !Array.isArray(doc.compose)) {
         throw new Error(`Invalid compose file: ${candidate}`);
       }
-      const entry = { steps: doc.compose, path: candidate };
+      const steps = canonicalizeSteps(doc.compose, def.context);
+      const entry = { steps, path: candidate };
       cache.set(key, entry);
       return entry;
     } catch (err) {
@@ -82,21 +267,21 @@ async function loadHelper(def) {
       );
     }
   }
-  const searched = candidates.join(', ');
   throw new Error(
-    `Unable to locate resolver helper "${def.id}". Searched: ${searched}${
-      lastError ? ` (last error: ${lastError.message || lastError})` : ''
-    }`
+    `Unable to locate resolver helper "${def.id}". Last error: ${lastError?.message || 'not found'}`
   );
 }
 
 export function registerResolverHelpers(registry) {
   for (const def of helperDefs) {
-    registry.register(def.id, async (ctx, input = {}) => {
-      const { steps } = await loadHelper(def);
-      const resultState = await runSteps(ctx, steps, input);
-      return resultState;
-    });
+    const ids = [def.id, ...(def.aliases || [])];
+    for (const id of ids) {
+      registry.register(id, async (ctx, input = {}) => {
+        const { steps } = await loadHelper(def);
+        const resultState = await runSteps(ctx, steps, input);
+        return resultState;
+      });
+    }
   }
   return registry;
 }

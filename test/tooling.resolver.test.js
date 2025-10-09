@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import TOML from '@iarna/toml';
 import { resolveResolverComposePath } from './helpers/resolver.js';
 
 import { Registry, Context } from '../src/registry.js';
@@ -58,7 +59,99 @@ async function loadCompose(filePath) {
   if (!parsed || !Array.isArray(parsed.compose)) {
     throw new Error(`Invalid compose file: ${filePath}`);
   }
+  const context = await loadManifestContext(filePath);
+  if (context) {
+    canonicalizeCompose(parsed.compose, context);
+  }
   return parsed.compose;
+}
+
+async function loadManifestContext(composePath) {
+  const dir = path.dirname(composePath);
+  const manifestPath = path.join(dir, 'lcp.toml');
+  try {
+    const manifestText = await fs.readFile(manifestPath, 'utf8');
+    const manifest = TOML.parse(manifestText);
+    const id = typeof manifest.id === 'string' ? manifest.id : null;
+    const basePath = id && id.startsWith('lcod://')
+      ? id.slice('lcod://'.length).split('@')[0]
+      : [manifest.namespace, manifest.name]
+          .filter((part) => typeof part === 'string' && part.length > 0)
+          .join('/');
+    const version = typeof manifest.version === 'string'
+      ? manifest.version
+      : (id && id.includes('@') ? id.split('@')[1] : '0.0.0');
+    if (!basePath) return null;
+    const aliasMap = manifest.workspace?.scopeAliases && typeof manifest.workspace.scopeAliases === 'object'
+      ? manifest.workspace.scopeAliases
+      : {};
+    return { basePath, version, aliasMap };
+  } catch {
+    return null;
+  }
+}
+
+function canonicalizeCompose(steps, context) {
+  if (!Array.isArray(steps)) return;
+  for (const step of steps) {
+    canonicalizeStep(step, context);
+  }
+}
+
+function canonicalizeStep(step, context) {
+  if (!step || typeof step !== 'object') return;
+  if (typeof step.call === 'string') {
+    step.call = canonicalizeId(step.call, context);
+  }
+  if (step.children) {
+    if (Array.isArray(step.children)) {
+      for (const child of step.children) canonicalizeStep(child, context);
+    } else if (typeof step.children === 'object') {
+      for (const key of Object.keys(step.children)) {
+        const branch = step.children[key];
+        if (Array.isArray(branch)) {
+          for (const child of branch) canonicalizeStep(child, context);
+        } else if (branch && typeof branch === 'object') {
+          canonicalizeValue(branch, context);
+        }
+      }
+    }
+  }
+  if (step.in) canonicalizeValue(step.in, context);
+  if (step.out) canonicalizeValue(step.out, context);
+  if (step.bindings) canonicalizeValue(step.bindings, context);
+}
+
+function canonicalizeValue(value, context) {
+  if (!value) return;
+  if (Array.isArray(value)) {
+    for (const item of value) canonicalizeValue(item, context);
+    return;
+  }
+  if (typeof value !== 'object') return;
+  if (typeof value.call === 'string') {
+    canonicalizeStep(value, context);
+    return;
+  }
+  for (const key of Object.keys(value)) {
+    canonicalizeValue(value[key], context);
+  }
+}
+
+function canonicalizeId(raw, context) {
+  if (typeof raw !== 'string' || raw.startsWith('lcod://')) return raw;
+  const segments = raw.replace(/^\.\//, '').split('/').filter(Boolean);
+  if (segments.length === 0) return raw;
+  const alias = segments[0];
+  const mapped = context.aliasMap?.[alias] ?? alias;
+  const remainder = segments.slice(1);
+  const parts = [];
+  if (context.basePath) parts.push(context.basePath);
+  if (mapped) parts.push(mapped);
+  if (remainder.length) parts.push(...remainder);
+  if (!parts.length) return raw;
+  const version = context.version || '0.0.0';
+  return `lcod://${parts.join('/')}` + `@${version}`;
 }
 
 function createRegistry() {
