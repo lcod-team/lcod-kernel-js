@@ -3,7 +3,7 @@
 ## M0 — Core runtime
 - [x] Parse `lcp.toml` descriptors with strict TOML/JSON schema validation.
 - [x] Register contracts, implementations and flow primitives in the in-memory registry.
-- [x] Execute composite flows with scope resolution (`$`, `$slot.*`) et JSON Schema IO checks.
+- [x] Execute composite flows with scope resolution (`$`, `$slot.*`) and JSON Schema IO checks.
 
 ## M1 — Composition & tests
 - [x] Flow operator set (`flow/if@1`, `flow/foreach@1`, `flow/parallel@1`, `flow/try@1`, `flow/throw@1`, `flow/break@1`, `flow/continue@1`).
@@ -23,16 +23,16 @@ Delivered:
 - [x] Core infrastructure contracts (filesystem, HTTP, Git, hashing, parsing) exposed via `registerNodeCore`.
 - [x] Resolver integration: workspace helper discovery, canonical ID normalisation, resolver CLI (`bin/run-compose.mjs --resolver`).
 - [x] Tooling contracts (`tooling/test_checker@1`, `tooling/script@1`) with sandboxed script execution.
-- [x] Cross-runtime conformance harness (`npm run test:spec`, `node scripts/run-conformance.mjs` depuis lcod-spec).
+- [x] Cross-runtime conformance harness (`npm run test:spec`, `node scripts/run-conformance.mjs` from lcod-spec).
 
 Next:
-- [ ] M3-06 Registry scope chaining: exposer `tooling/registry/scope@1` et mettre à jour le kernel pour gérer les registres imbriqués (compose → scope → parent) avec tests dédiés.
+- [ ] M3-06 Registry scope chaining: expose `tooling/registry/scope@1` and update the kernel to handle nested registries (compose → scope → parent) with dedicated tests.
 
-## M4 — Observabilité & logging
-- [ ] Implémenter le contrat `lcod://tooling/log@1` dès qu’il est figé dans la spec (journalisation structurée vers l’hôte).
-- [ ] Ajouter le mode trace (`--trace`) sur `bin/run-compose.mjs` pour inspecter les mutations de scope.
+## M4 — Observability & logging
+- [ ] Implement the `lcod://tooling/log@1` contract once finalised in the spec (structured logging toward the host).
+- [ ] Add a trace mode (`--trace`) to `bin/run-compose.mjs` to inspect scope mutations.
 
 ## M5 — Packaging & distribution
-- [ ] Implémenter `--assemble` pour empaqueter `lcp.lock` + `lcod_modules/`.
-- [ ] Prototyper `--ship` (kernel + launcher) et documenter les options d’embarquement.
-- [ ] Étudier `--build` (GraalVM/Node pkg) et noter les limitations.
+- [ ] Implement `--assemble` to bundle `lcp.lock` + `lcod_modules/`.
+- [ ] Prototype `--ship` (kernel + launcher) and document embedding options.
+- [ ] Explore `--build` targets (GraalVM/Node pkg) and record limitations.
