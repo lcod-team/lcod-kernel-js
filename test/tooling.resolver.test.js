@@ -14,6 +14,7 @@ import { Registry, Context } from '../src/registry.js';
 import { runCompose } from '../src/compose.js';
 import { registerNodeCore, registerNodeResolverAxioms } from '../src/core/index.js';
 import { registerScriptContract } from '../src/tooling/script.js';
+import { registerResolverHelpers } from '../src/tooling/resolver-helpers.js';
 import { flowIf } from '../src/flow/if.js';
 import { flowForeach } from '../src/flow/foreach.js';
 import { flowParallel } from '../src/flow/parallel.js';
@@ -65,6 +66,7 @@ function createRegistry() {
   registerNodeCore(registry);
   registerScriptContract(registry);
   registerNodeResolverAxioms(registry);
+  registerResolverHelpers(registry);
   registry.register('lcod://flow/if@1', flowIf);
   registry.register('lcod://flow/foreach@1', flowForeach);
   registry.register('lcod://flow/parallel@1', flowParallel);

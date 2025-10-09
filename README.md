@@ -55,13 +55,20 @@ Create a `resolve.config.json` with source mappings and generate a lockfile:
 cat > resolve.config.json <<'JSON'
 {
   "sources": {
-    "lcod://tooling/resolver@0.1.0": { "type": "path", "path": "../lcod-spec/examples/tooling/resolver" }
+    "lcod://tooling/resolver@0.1.0": { "type": "path", "path": "../lcod-spec/examples/tooling/resolver" },
+    "lcod://resolver/internal/load-descriptor@1": { "type": "path", "path": "../lcod-resolver/components/internal/load_descriptor" },
+    "lcod://resolver/internal/load-config@1": { "type": "path", "path": "../lcod-resolver/components/internal/load_config" },
+    "lcod://resolver/internal/lock-path@1": { "type": "path", "path": "../lcod-resolver/components/internal/lock_path" },
+    "lcod://resolver/internal/build-lock@1": { "type": "path", "path": "../lcod-resolver/components/internal/build_lock" }
   }
 }
 JSON
 
 npm run resolve -- --project ../lcod-spec/examples/demo/my_weather --config resolve.config.json
 ```
+
+Set `LCOD_RESOLVER_PATH=/path/to/lcod-resolver` (or `LCOD_RESOLVER_COMPONENTS_PATH` directly) to let
+the helper loader discover these components without explicit source overrides.
 
 Mappings are optional; unresolved components emit warnings while still producing the lock stub.
 

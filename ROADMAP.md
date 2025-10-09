@@ -24,6 +24,7 @@
   - [x] Consume spec `tooling/test_checker@1` fixtures from CI and expose `npm run test:spec`
   - [x] Implement `tooling/script@1` runtime support (Node `vm` sandbox)
 - [ ] M3-06: Expose the embedded scripting sandbox API (`$api.run`, `$api.config`) with configurable sandboxing.
+- [ ] M3-07: Implement scoped registries & lazy component loading (#16)
 
 ## M4 — Packaging pipeline
 - [ ] Implement CLI support for `--assemble` to bundle `lcp.lock` + `lcod_modules/` (Node compose + deps).
