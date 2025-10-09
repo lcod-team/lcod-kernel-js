@@ -1,33 +1,38 @@
 # Roadmap — Node Kernel (lcod-kernel-js)
 
-## M0 — Core format
-- [x] Load `lcp.toml` descriptors with strict TOML/JSON parsing and schema validation.
-- [x] Register contracts, implementations and flow primitives in the registry.
-- [x] Execute composite flows with scope resolution (`$`, `$slot.*`) and JSON Schema IO checks.
+## M0 — Core runtime
+- [x] Parse `lcp.toml` descriptors with strict TOML/JSON schema validation.
+- [x] Register contracts, implementations and flow primitives in the in-memory registry.
+- [x] Execute composite flows with scope resolution (`$`, `$slot.*`) et JSON Schema IO checks.
 
 ## M1 — Composition & tests
-- [x] Ship the flow operator set (`flow/if@1`, `flow/foreach@1`, `flow/parallel@1`, `flow/try@1`, `flow/throw@1`, `flow/break@1`, `flow/continue@1`).
-- [x] Restore slot helpers for nested flows and support async stream collection + loop control.
-- [x] Provide regression coverage via `node --test` (`test/flow.blocks.test.js`) and the "Node Tests" GitHub Action.
+- [x] Flow operator set (`flow/if@1`, `flow/foreach@1`, `flow/parallel@1`, `flow/try@1`, `flow/throw@1`, `flow/break@1`, `flow/continue@1`).
+- [x] Slot orchestration and async stream handling (`ctx.runChildren`, `ctx.runSlot`, loop control).
+- [x] Regression coverage via `node --test`, shared spec fixtures (`npm run test:spec`) and CI workflows.
 
-## M2 — Distribution & security
-- [x] Expose the strict validator CLI (`scripts/validate-lcp.mjs`) and wire it into CI.
-- [x] Support `compose.yaml`, resolver prototype (`scripts/resolve.mjs`), and lockfile-aware docs.
-- [x] Integrate with the packaging pipeline (lockfile generation + `.lcpkg` archives).
+## M2 — Distribution & tooling
+- [x] Strict validator CLI (`scripts/validate-lcp.mjs`) wired into CI.
+- [x] Resolver prototype support (compose loader, lockfile-aware docs, `.lcpkg` route).
+- [x] Compose normalisation hook to consume shared sugar (`tooling/compose/normalize@1`).
 
-## M3 — Runtime substrates
-- [x] M3-01: Consume the spec infrastructure contracts (filesystem, HTTP, Git, hashing, TOML/JSON parsing) in the runtime registry.
-- [ ] M3-02: Publish a Node axiom bundle implementing the M3 contract set (npm package + docs).
-- [ ] M3-03: Execute the resolver composite with the Node axiom bundle and verify lockfile production end-to-end.
-- [ ] M3-04: Define substrate boundaries so additional runtimes (Rust, Java, …) can plug in; document the Node reference implementation.
-- [ ] M3-05: Build a conformance harness comparing Node results against future substrates.
-  - [x] Consume spec `tooling/test_checker@1` fixtures from CI and expose `npm run test:spec`
-  - [x] Implement `tooling/script@1` runtime support (Node `vm` sandbox)
-- [ ] M3-06: Expose the embedded scripting sandbox API (`$api.run`, `$api.config`) with configurable sandboxing.
-- [ ] M3-07: Implement workspace-scoped registries, relative component IDs, and lazy component loading (#16)
+## M3 — Runtime parity
 
-## M4 — Packaging pipeline
-- [ ] Implement CLI support for `--assemble` to bundle `lcp.lock` + `lcod_modules/` (Node compose + deps).
-- [ ] Prototype `--ship` (kernel + launcher) and document runtime embedding options.
-- [ ] Explore `--build` targets (Node pkg/GraalVM or other distribution tooling) and record limitations.
-- [x] Consume the shared `tooling/compose/normalize@1` component so the loader expands sugar before executing the canonical compose.
+Goal: stay aligned with the spec and sibling substrates.
+
+Delivered:
+- [x] Core infrastructure contracts (filesystem, HTTP, Git, hashing, parsing) exposed via `registerNodeCore`.
+- [x] Resolver integration: workspace helper discovery, canonical ID normalisation, resolver CLI (`bin/run-compose.mjs --resolver`).
+- [x] Tooling contracts (`tooling/test_checker@1`, `tooling/script@1`) with sandboxed script execution.
+- [x] Cross-runtime conformance harness (`npm run test:spec`, `node scripts/run-conformance.mjs` depuis lcod-spec).
+
+Next:
+- [ ] M3-06 Registry scope chaining: exposer `tooling/registry/scope@1` et mettre à jour le kernel pour gérer les registres imbriqués (compose → scope → parent) avec tests dédiés.
+
+## M4 — Observabilité & logging
+- [ ] Implémenter le contrat `lcod://tooling/log@1` dès qu’il est figé dans la spec (journalisation structurée vers l’hôte).
+- [ ] Ajouter le mode trace (`--trace`) sur `bin/run-compose.mjs` pour inspecter les mutations de scope.
+
+## M5 — Packaging & distribution
+- [ ] Implémenter `--assemble` pour empaqueter `lcp.lock` + `lcod_modules/`.
+- [ ] Prototyper `--ship` (kernel + launcher) et documenter les options d’embarquement.
+- [ ] Étudier `--build` (GraalVM/Node pkg) et noter les limitations.
