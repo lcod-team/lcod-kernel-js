@@ -27,7 +27,7 @@ Delivered:
 - [x] Registry scope chaining via `tooling/registry/scope@1` (scoped contract bindings with automatic restoration; inline helper registration to follow).
 
 Next:
-- [ ] Extend scoped registries to support inline helper/component registration once the spec requirements are finalised.
+- [x] Extend scoped registries to support inline helper/component registration (inline `compose` snippets now registered ephemerally within the scope).
 
 ## M4 — Observability & logging
 - [ ] Implement the `lcod://tooling/log@1` contract once finalised in the spec (structured logging toward the host).

@@ -115,3 +115,40 @@ test('registry scope isolates helper registrations', async () => {
   assert.equal(registry.get('lcod://helper/scoped-temp@1'), undefined);
   await assert.rejects(() => ctx.call('lcod://helper/scoped-temp@1', {}), /Func not found/);
 });
+
+test('registry scope registers inline components for the duration of the scope', async () => {
+  const registry = setupRegistry();
+  const ctx = new Context(registry);
+
+  const compose = [
+    {
+      call: 'lcod://tooling/registry/scope@1',
+      in: {
+        components: [
+          {
+            id: 'lcod://helper/inline-temp@1',
+            compose: [
+              {
+                call: 'lcod://impl/demo/scoped@1',
+                out: { value: 'result' }
+              }
+            ]
+          }
+        ]
+      },
+      children: [
+        {
+          call: 'lcod://helper/inline-temp@1',
+          out: { scopedValue: 'value' }
+        }
+      ],
+      out: { scoped: 'scopedValue' }
+    }
+  ];
+
+  const result = await runCompose(ctx, compose, {});
+  assert.equal(result.scoped, 'scoped');
+
+  assert.equal(registry.get('lcod://helper/inline-temp@1'), undefined);
+  await assert.rejects(() => ctx.call('lcod://helper/inline-temp@1', {}), /Func not found/);
+});
