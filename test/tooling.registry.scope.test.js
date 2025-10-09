@@ -1,0 +1,88 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { Registry, Context } from '../src/registry.js';
+import { runCompose } from '../src/compose.js';
+import { registerTooling } from '../src/tooling/index.js';
+
+function setupRegistry() {
+  const registry = new Registry();
+  registerTooling(registry);
+
+  registry.register('lcod://impl/demo/base@1', async () => ({ result: 'base' }));
+  registry.register('lcod://impl/demo/scoped@1', async () => ({ result: 'scoped' }));
+  registry.register('lcod://impl/demo/error@1', async () => {
+    throw new Error('boom');
+  });
+  registry.setBindings({
+    'lcod://contract/demo/value@1': 'lcod://impl/demo/base@1'
+  });
+
+  return registry;
+}
+
+test('registry scope applies temporary bindings and restores afterwards', async () => {
+  const registry = setupRegistry();
+  const ctx = new Context(registry);
+
+  const compose = [
+    {
+      call: 'lcod://tooling/registry/scope@1',
+      in: {
+        bindings: {
+          'lcod://contract/demo/value@1': 'lcod://impl/demo/scoped@1'
+        }
+      },
+      children: [
+        {
+          call: 'lcod://contract/demo/value@1',
+          out: { scopedValue: 'result' }
+        }
+      ],
+      out: {
+        scoped: 'scopedValue'
+      }
+    },
+    {
+      call: 'lcod://contract/demo/value@1',
+      out: { global: 'result' }
+    }
+  ];
+
+  const result = await runCompose(ctx, compose, {});
+  assert.equal(result.scoped, 'scoped');
+  assert.equal(result.global, 'base');
+});
+
+test('registry scope restores bindings even when children fail', async () => {
+  const registry = setupRegistry();
+  const ctx = new Context(registry);
+
+  const failingCompose = [
+    {
+      call: 'lcod://tooling/registry/scope@1',
+      in: {
+        bindings: {
+          'lcod://contract/demo/value@1': 'lcod://impl/demo/error@1'
+        }
+      },
+      children: [
+        {
+          call: 'lcod://contract/demo/value@1'
+        }
+      ]
+    }
+  ];
+
+  await assert.rejects(() => runCompose(ctx, failingCompose, {}), /boom/);
+
+  const verifyCompose = [
+    {
+      call: 'lcod://contract/demo/value@1',
+      out: { value: 'result' }
+    }
+  ];
+
+  const verification = await runCompose(ctx, verifyCompose, {});
+  assert.equal(verification.value, 'base');
+});

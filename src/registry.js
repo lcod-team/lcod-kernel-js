@@ -25,6 +25,7 @@ export class Context {
     this.runSlot = async (_slotName, _localState, _slotVars) => { throw new Error('runSlot not available in this context'); };
     // Cleanup scopes for resources
     this._scopeStack = [];
+    this._registryBindingStack = [];
   }
   defer(fn) {
     if (!this._scopeStack.length) this._scopeStack.push([]);
@@ -67,5 +68,28 @@ export class Context {
       }
     }
     return out;
+  }
+
+  enterRegistryScope(options = {}) {
+    const current = { ...(this.registry.bindings || {}) };
+    this._registryBindingStack.push(current);
+    const merged = { ...current };
+    if (options && typeof options.bindings === 'object' && options.bindings !== null) {
+      for (const [contractId, implementationId] of Object.entries(options.bindings)) {
+        if (typeof contractId === 'string' && typeof implementationId === 'string') {
+          merged[contractId] = implementationId;
+        }
+      }
+    }
+    this.registry.bindings = merged;
+  }
+
+  leaveRegistryScope() {
+    const previous = this._registryBindingStack.pop();
+    if (previous) {
+      this.registry.bindings = previous;
+    } else if (!this.registry.bindings) {
+      this.registry.bindings = {};
+    }
   }
 }

@@ -24,9 +24,10 @@ Delivered:
 - [x] Resolver integration: workspace helper discovery, canonical ID normalisation, resolver CLI (`bin/run-compose.mjs --resolver`).
 - [x] Tooling contracts (`tooling/test_checker@1`, `tooling/script@1`) with sandboxed script execution.
 - [x] Cross-runtime conformance harness (`npm run test:spec`, `node scripts/run-conformance.mjs` from lcod-spec).
+- [x] Registry scope chaining via `tooling/registry/scope@1` (scoped contract bindings with automatic restoration; inline helper registration to follow).
 
 Next:
-- [ ] M3-06 Registry scope chaining: expose `tooling/registry/scope@1` and update the kernel to handle nested registries (compose → scope → parent) with dedicated tests.
+- [ ] Extend scoped registries to support inline helper/component registration once the spec requirements are finalised.
 
 ## M4 — Observability & logging
 - [ ] Implement the `lcod://tooling/log@1` contract once finalised in the spec (structured logging toward the host).
