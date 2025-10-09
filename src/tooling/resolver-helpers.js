@@ -21,6 +21,22 @@ const helperDefs = [
     segments: ['components', 'internal', 'lock_path', 'compose.yaml']
   },
   {
+    id: 'lcod://resolver/internal/prepare-config@1',
+    segments: ['components', 'internal', 'prepare_config', 'compose.yaml']
+  },
+  {
+    id: 'lcod://resolver/internal/prepare-cache@1',
+    segments: ['components', 'internal', 'prepare_cache', 'compose.yaml']
+  },
+  {
+    id: 'lcod://resolver/internal/resolve-dependencies@1',
+    segments: ['components', 'internal', 'resolve_dependencies', 'compose.yaml']
+  },
+  {
+    id: 'lcod://resolver/internal/summarize-result@1',
+    segments: ['components', 'internal', 'summarize_result', 'compose.yaml']
+  },
+  {
     id: 'lcod://resolver/internal/build-lock@1',
     segments: ['components', 'internal', 'build_lock', 'compose.yaml']
   }
