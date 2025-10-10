@@ -178,9 +178,26 @@ export function registerScriptContract(registry) {
 
     const timeout = typeof input.timeoutMs === 'number' ? Math.max(1, input.timeoutMs) : 1000;
 
-    const initialState = input.input && typeof input.input === 'object' && !Array.isArray(input.input)
+    let initialState = input.input && typeof input.input === 'object' && !Array.isArray(input.input)
       ? deepClone(input.input)
       : (typeof input.input === 'undefined' ? {} : input.input);
+
+    if (
+      (!initialState || (typeof initialState === 'object' && !Array.isArray(initialState) && Object.keys(initialState).length === 0)) &&
+      typeof input.input === 'undefined' &&
+      input && typeof input === 'object'
+    ) {
+      const fallback = {};
+      for (const [key, value] of Object.entries(input)) {
+        if (['source', 'language', 'timeoutMs', 'tools', 'imports', 'bindings', 'config', 'meta', 'streams', 'input'].includes(key)) {
+          continue;
+        }
+        fallback[key] = deepClone(value);
+      }
+      if (Object.keys(fallback).length) {
+        initialState = fallback;
+      }
+    }
 
     registerStreams(ctx, initialState, input.streams);
 

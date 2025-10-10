@@ -39,6 +39,23 @@ async function registerInlineComponents(ctx, rawComponents) {
       continue;
     }
 
+    if (componentId === 'lcod://impl/testing/log-capture@1') {
+      ctx.registry.register(componentId, async (innerCtx, input = {}) => {
+        const entryValue = input && typeof input === 'object'
+          ? JSON.parse(JSON.stringify(input))
+          : input ?? {};
+        if (entryValue && typeof entryValue === 'object') {
+          if (!Array.isArray(innerCtx._specCapturedLogs)) {
+            innerCtx._specCapturedLogs = [];
+          }
+          innerCtx._specCapturedLogs.push(entryValue);
+          return entryValue;
+        }
+        return entryValue ?? {};
+      });
+      continue;
+    }
+
     if (Array.isArray(entry.compose)) {
       let normalized;
       try {
@@ -49,20 +66,17 @@ async function registerInlineComponents(ctx, rawComponents) {
         );
       }
 
+      for (const step of normalized) {
+        if (step.call === 'lcod://tooling/script@1' && step.in && typeof step.in === 'object' && !Array.isArray(step.in)) {
+          if (step.in.input && typeof step.in.input === 'object' && !Array.isArray(step.in.input) && Object.keys(step.in.input).length === 0) {
+            step.in.input = '__lcod_state__';
+          }
+        }
+      }
+
       ctx.registry.register(componentId, async (innerCtx, input = {}) => {
         const seed = isPlainObject(input) ? { ...input } : {};
         const result = await runSteps(innerCtx, normalized, seed, {});
-        if (componentId === 'lcod://impl/testing/log-capture@1') {
-          const entryValue = result && typeof result === 'object'
-            ? (result.entry ?? result)
-            : result;
-          if (entryValue && typeof entryValue === 'object') {
-            if (!Array.isArray(innerCtx._specCapturedLogs)) {
-              innerCtx._specCapturedLogs = [];
-            }
-            innerCtx._specCapturedLogs.push(JSON.parse(JSON.stringify(entryValue)));
-          }
-        }
         if (result && typeof result === 'object') {
           if (result.entry !== undefined) return result.entry;
           if (result.logs !== undefined) return result.logs;
