@@ -1,5 +1,15 @@
 import vm from 'node:vm';
 import { inspect } from 'node:util';
+import { LOG_CONTRACT_ID } from './logging.js';
+
+const CONSOLE_LEVELS = {
+  log: 'info',
+  info: 'info',
+  warn: 'warn',
+  error: 'error',
+  debug: 'debug',
+  trace: 'trace'
+};
 
 function deepClone(value) {
   if (typeof structuredClone === 'function') return structuredClone(value);
@@ -123,6 +133,38 @@ function normalizeConfigPath(path) {
   return `$.${path}`;
 }
 
+function renderConsoleMessage(values) {
+  return values.map(v => (typeof v === 'string' ? v : inspect(v))).join(' ');
+}
+
+function forwardConsole(ctx, messages, pending, method) {
+  const level = CONSOLE_LEVELS[method] || 'info';
+  return (...vals) => {
+    const rendered = renderConsoleMessage(vals);
+    const message = rendered && rendered.trim().length ? rendered : `[console.${method}]`;
+    messages.push(message);
+    try {
+      const result = ctx.call(LOG_CONTRACT_ID, { level, message });
+      if (result && typeof result.then === 'function') {
+        pending.push(result.catch(() => {}));
+      }
+    } catch (_err) {
+      // Keep console.* best-effort even if logging is unavailable.
+    }
+  };
+}
+
+function createConsole(ctx, messages, pending) {
+  return {
+    log: forwardConsole(ctx, messages, pending, 'log'),
+    info: forwardConsole(ctx, messages, pending, 'info'),
+    warn: forwardConsole(ctx, messages, pending, 'warn'),
+    error: forwardConsole(ctx, messages, pending, 'error'),
+    debug: forwardConsole(ctx, messages, pending, 'debug'),
+    trace: forwardConsole(ctx, messages, pending, 'trace')
+  };
+}
+
 export function registerScriptContract(registry) {
   registry.register('lcod://tooling/script@1', async (ctx, input = {}) => {
     const language = input.language || 'javascript';
@@ -154,11 +196,10 @@ export function registerScriptContract(registry) {
     const config = deepClone(input.config || {});
 
     const messages = [];
+    const pendingLogs = [];
 
     const sandbox = {
-      console: {
-        log: (...vals) => messages.push(vals.map(v => (typeof v === 'string' ? v : inspect(v))).join(' '))
-      }
+      console: createConsole(ctx, messages, pendingLogs)
     };
     vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
 
@@ -213,6 +254,9 @@ export function registerScriptContract(registry) {
 
     try {
       const result = await userFn(scope, api);
+      if (pendingLogs.length) {
+        await Promise.allSettled(pendingLogs);
+      }
       if (messages.length && result && typeof result === 'object') {
         const cloned = Array.isArray(result) ? [...result] : { ...result };
         if (!cloned.messages) cloned.messages = [];
@@ -224,6 +268,9 @@ export function registerScriptContract(registry) {
       }
       return result;
     } catch (err) {
+      if (pendingLogs.length) {
+        await Promise.allSettled(pendingLogs);
+      }
       return {
         success: false,
         messages: [err?.message || String(err)],

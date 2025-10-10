@@ -39,17 +39,26 @@ export class Context {
     }
   }
   async call(name, input, meta) {
+    const dataIn = input ?? {};
+
     let entry = this.registry.get(name);
-    // Basic contract binding: if not found and looks like a contract ID, resolve via bindings
     if (!entry && typeof name === 'string' && name.startsWith('lcod://contract/')) {
       const implId = (this.registry.bindings || {})[name];
-      if (!implId) throw new Error(`No binding for contract: ${name}`);
-      entry = this.registry.get(implId);
-      if (!entry) throw new Error(`Implementation not registered for ${name}: ${implId}`);
+      if (implId && implId !== name) {
+        entry = this.registry.get(implId);
+        if (!entry) {
+          throw new Error(`Implementation not registered for ${name}: ${implId}`);
+        }
+      } else if (!implId) {
+        throw new Error(`No binding for contract: ${name}`);
+      }
     }
-    if (!entry) throw new Error(`Func not found: ${name}`);
+
+    if (!entry) {
+      throw new Error(`Func not found: ${name}`);
+    }
+
     const { fn, inputSchema, outputSchema } = entry;
-    const dataIn = input ?? {};
     if (inputSchema) {
       const validate = await getValidator(inputSchema);
       const ok = validate(dataIn);

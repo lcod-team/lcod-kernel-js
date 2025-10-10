@@ -29,6 +29,16 @@ async function registerInlineComponents(ctx, rawComponents) {
       continue;
     }
 
+    if (componentId === 'lcod://impl/testing/log-captured@1') {
+      ctx.registry.register(componentId, async (innerCtx) => {
+        const captured = Array.isArray(innerCtx._specCapturedLogs)
+          ? innerCtx._specCapturedLogs
+          : [];
+        return captured.map(entry => (entry && typeof entry === 'object' ? { ...entry } : entry));
+      });
+      continue;
+    }
+
     if (Array.isArray(entry.compose)) {
       let normalized;
       try {
@@ -40,8 +50,23 @@ async function registerInlineComponents(ctx, rawComponents) {
       }
 
       ctx.registry.register(componentId, async (innerCtx, input = {}) => {
-        const seed = isPlainObject(input) ? input : {};
+        const seed = isPlainObject(input) ? { ...input } : {};
         const result = await runSteps(innerCtx, normalized, seed, {});
+        if (componentId === 'lcod://impl/testing/log-capture@1') {
+          const entryValue = result && typeof result === 'object'
+            ? (result.entry ?? result)
+            : result;
+          if (entryValue && typeof entryValue === 'object') {
+            if (!Array.isArray(innerCtx._specCapturedLogs)) {
+              innerCtx._specCapturedLogs = [];
+            }
+            innerCtx._specCapturedLogs.push(JSON.parse(JSON.stringify(entryValue)));
+          }
+        }
+        if (result && typeof result === 'object') {
+          if (result.entry !== undefined) return result.entry;
+          if (result.logs !== undefined) return result.logs;
+        }
         return result ?? {};
       });
       continue;

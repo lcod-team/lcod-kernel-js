@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { Registry, Context } from '../src/registry.js';
 import { registerScriptContract } from '../src/tooling/script.js';
+import { LOG_CONTRACT_ID } from '../src/tooling/logging.js';
 
 function createRegistry() {
   const registry = new Registry();
@@ -71,4 +72,36 @@ test('tooling/script imports aliases call components', async () => {
 
   const result = await ctx.call('lcod://tooling/script@1', request, null);
   assert.equal(result.value, 14);
+});
+
+test('console methods forward to logging contract', async () => {
+  const registry = createRegistry();
+  const ctx = new Context(registry);
+  const captured = [];
+
+  registry.register(LOG_CONTRACT_ID, async (_ctx, payload = {}) => {
+    captured.push(payload);
+    return payload;
+  });
+
+  const request = {
+    source: `async () => {
+      console.log('hello world');
+      console.warn('warned', { code: 123 });
+      return { done: true };
+    }`
+  };
+
+  const result = await ctx.call('lcod://tooling/script@1', request, null);
+
+  assert.equal(result.done, true);
+  const messages = result.messages || [];
+  assert.ok(messages.some(msg => msg.includes('hello world')));
+
+  assert.equal(captured.length, 2);
+  assert.equal(captured[0].level, 'info');
+  assert.equal(captured[0].message, 'hello world');
+  assert.equal(captured[1].level, 'warn');
+  assert.ok(captured[1].message.includes('warned'));
+  assert.ok(captured[1].message.includes('123'));
 });

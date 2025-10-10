@@ -28,9 +28,10 @@ Delivered:
 
 Next:
 - [x] Extend scoped registries to support inline helper/component registration (inline `compose` snippets now registered ephemerally within the scope).
+- [x] tooling/script: forward `console.*` calls through `lcod://contract/tooling/log@1` so script logs use the shared logging pipeline.
 
 ## M4 — Observability & logging
-- [ ] Implement the `lcod://tooling/log@1` contract once finalised in the spec (structured logging toward the host).
+- [x] Implement the `lcod://tooling/log@1` contract once finalised in the spec (structured logging toward the host).
 - [ ] Add a trace mode (`--trace`) to `bin/run-compose.mjs` to inspect scope mutations.
 
 ## M5 — Packaging & distribution
