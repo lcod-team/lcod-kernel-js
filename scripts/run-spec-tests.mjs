@@ -6,10 +6,11 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { Registry, Context } from '../src/registry.js';
-import { registerNodeCore } from '../src/core/index.js';
+import { registerNodeCore, registerNodeResolverAxioms } from '../src/core/index.js';
 import { registerDemoAxioms } from '../src/axioms.js';
 import { registerFlowPrimitives } from '../src/flow/register.js';
 import { registerTooling } from '../src/tooling/index.js';
+import { registerRegistryComponents } from '../src/tooling/registry-components.js';
 import { runCompose } from '../src/compose.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -68,9 +69,12 @@ async function runTest(composePath) {
   process.chdir(composeDir);
   try {
     const compose = await loadCompose(composePath);
+    const baseRegistry = registerNodeCore(new Registry());
+    registerNodeResolverAxioms(baseRegistry);
     const registry = registerTooling(
-      registerFlowPrimitives(registerDemoAxioms(registerNodeCore(new Registry())))
+      registerFlowPrimitives(registerDemoAxioms(baseRegistry))
     );
+    registerRegistryComponents(registry);
     const ctx = new Context(registry);
     const result = await runCompose(ctx, compose, {});
     const report = result.report || {};

@@ -11,6 +11,27 @@ const execFileAsync = promisify(execFile);
 
 import { resolveResolverComposePath } from './helpers/resolver.js';
 
+async function resolveSpecRoot() {
+  if (process.env.SPEC_REPO_PATH) {
+    const candidate = path.resolve(process.env.SPEC_REPO_PATH);
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.isDirectory()) return candidate;
+    } catch {}
+  }
+  const candidates = [
+    path.resolve(__dirname, '..', '..', 'lcod-spec'),
+    path.resolve(__dirname, '..', '..', '..', 'lcod-spec')
+  ];
+  for (const candidate of candidates) {
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.isDirectory()) return candidate;
+    } catch {}
+  }
+  return null;
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -39,6 +60,12 @@ test('run-compose resolver CLI wires project/output/cache flags', async (t) => {
     const outputLock = path.join(tempProject, 'custom.lock');
     const cacheDir = path.join(tempProject, 'cache-dir');
 
+    const specRoot = await resolveSpecRoot();
+    const env = { ...process.env };
+    if (specRoot) {
+      env.SPEC_REPO_PATH = specRoot;
+    }
+
     const { stdout } = await execFileAsync('node', [
       'bin/run-compose.mjs',
       '--compose',
@@ -50,7 +77,7 @@ test('run-compose resolver CLI wires project/output/cache flags', async (t) => {
       outputLock,
       '--cache-dir',
       cacheDir
-    ], { cwd: repoRoot, env: { ...process.env } });
+    ], { cwd: repoRoot, env });
 
     const result = JSON.parse(stdout);
     assert.equal(result.lockPath, outputLock);

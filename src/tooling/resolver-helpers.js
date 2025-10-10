@@ -14,11 +14,14 @@ const cache = new Map();
 
 function buildHelperDefinitions() {
   const candidates = gatherResolverCandidates();
+  const collected = [];
   for (const candidate of candidates) {
     const defs = loadDefinitionsForCandidate(candidate);
-    if (defs.length > 0) return defs;
+    if (defs.length > 0) {
+      collected.push(...defs);
+    }
   }
-  return [];
+  return collected;
 }
 
 function gatherResolverCandidates() {
@@ -31,6 +34,7 @@ function gatherResolverCandidates() {
   }
   out.push({ type: 'root', path: path.resolve(repoRoot, '..', 'lcod-resolver') });
   out.push({ type: 'legacy', path: path.resolve(repoRoot, '..', 'lcod-spec', 'tooling', 'resolver') });
+  out.push({ type: 'legacy', path: path.resolve(repoRoot, '..', 'lcod-spec', 'tooling', 'registry') });
   return out;
 }
 
@@ -283,5 +287,59 @@ export function registerResolverHelpers(registry) {
       });
     }
   }
+  registry.register('lcod://tooling/resolver/register@1', async (_ctx, input = {}) => {
+    const components = Array.isArray(input.components) ? input.components : [];
+    const warnings = [];
+    let count = 0;
+    for (const component of components) {
+      if (!component || typeof component !== 'object') continue;
+      const context = component.context && typeof component.context === 'object'
+        ? component.context
+        : undefined;
+      const rawId = typeof component.id === 'string' && component.id.length > 0
+        ? component.id
+        : null;
+      if (!rawId) {
+        warnings.push('resolver/register: missing component id');
+        continue;
+      }
+      const canonicalId = canonicalizeId(rawId, context);
+      if (typeof canonicalId !== 'string' || !canonicalId.startsWith('lcod://')) {
+        warnings.push(`resolver/register: invalid component id "${rawId}"`);
+        continue;
+      }
+
+      let steps;
+      if (Array.isArray(component.compose)) {
+        steps = canonicalizeSteps(component.compose, context);
+      } else if (typeof component.composePath === 'string' && component.composePath.length > 0) {
+        try {
+          const raw = await fsp.readFile(component.composePath, 'utf8');
+          const doc = YAML.parse(raw);
+          if (!doc || !Array.isArray(doc.compose)) {
+            warnings.push(`resolver/register: invalid compose file for ${canonicalId}: ${component.composePath}`);
+            continue;
+          }
+          steps = canonicalizeSteps(doc.compose, context);
+        } catch (err) {
+          warnings.push(`resolver/register: failed to read ${component.composePath}: ${err.message || err}`);
+          continue;
+        }
+      } else {
+        warnings.push(`resolver/register: component ${canonicalId} missing compose data`);
+        continue;
+      }
+
+      registry.register(canonicalId, async (ctx, payload = {}) => {
+        const resultState = await runSteps(ctx, steps, payload);
+        return resultState;
+      });
+      count += 1;
+    }
+    return {
+      registered: count,
+      warnings: warnings.length > 0 ? warnings : undefined
+    };
+  });
   return registry;
 }

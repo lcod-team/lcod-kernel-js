@@ -202,6 +202,11 @@ test('resolver compose resolves local path dependency', async (t) => {
   const ctx = new Context(registry);
   const tempProject = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-path-'));
   try {
+    const specRoot = await resolveSpecRoot();
+    if (!specRoot) {
+      t.skip('lcod-spec repository not available (set SPEC_REPO_PATH to override)');
+      return;
+    }
     const depDir = path.join(tempProject, 'components', 'dep');
     await fs.mkdir(depDir, { recursive: true });
     const depDescriptor = [
@@ -234,6 +239,9 @@ test('resolver compose resolves local path dependency', async (t) => {
     await fs.writeFile(
       configPath,
       JSON.stringify({
+        tooling: {
+          specRoot
+        },
         sources: {
           'lcod://example/dep@0.1.0': { type: 'path', path: 'components/dep' }
         }
@@ -281,6 +289,11 @@ test('resolver compose handles git sources with cache dir', async (t) => {
   process.env.LCOD_CACHE_DIR = cacheOverride;
 
   try {
+    const specRoot = await resolveSpecRoot();
+    if (!specRoot) {
+      t.skip('lcod-spec repository not available (set SPEC_REPO_PATH to override)');
+      return;
+    }
     await fs.mkdir(repoDir, { recursive: true });
     const depDescriptor = [
       'schemaVersion = "1.0"',
@@ -317,6 +330,9 @@ test('resolver compose handles git sources with cache dir', async (t) => {
     await fs.writeFile(
       configPath,
       JSON.stringify({
+        tooling: {
+          specRoot
+        },
         sources: {
           'lcod://example/git@0.1.0': { type: 'git', url: repoDir }
         }
