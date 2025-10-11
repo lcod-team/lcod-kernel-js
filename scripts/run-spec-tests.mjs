@@ -74,7 +74,7 @@ async function runTest(composePath) {
     const registry = registerTooling(
       registerFlowPrimitives(registerDemoAxioms(baseRegistry))
     );
-    registerRegistryComponents(registry);
+    await registerRegistryComponents(registry);
     const ctx = new Context(registry);
     const result = await runCompose(ctx, compose, {});
     const report = result.report || {};

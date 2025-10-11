@@ -4,11 +4,10 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { runSteps } from '../compose/runtime.js';
+import { Context } from '../registry.js';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, '..', '..');
-
-const componentDefs = buildComponentDefinitions();
 const composeCache = new Map();
 
 function resolveSpecRoot() {
@@ -31,66 +30,68 @@ function resolveSpecRoot() {
   return null;
 }
 
-function buildComponentDefinitions() {
-  const specRoot = resolveSpecRoot();
-  if (!specRoot) {
-    console.warn('[tooling/registry] Unable to locate lcod-spec repository; registry tooling components will not be available.');
-    return [];
+function loadComposeFromPath(composePath) {
+  if (composeCache.has(composePath)) {
+    return composeCache.get(composePath);
   }
-  const descriptors = [
-    {
-      id: 'lcod://tooling/registry/index@0.1.0',
-      compose: path.join(specRoot, 'tooling/registry/index/compose.yaml')
-    },
-    {
-      id: 'lcod://tooling/registry/fetch@0.1.0',
-      compose: path.join(specRoot, 'tooling/registry/fetch/compose.yaml')
-    },
-    {
-      id: 'lcod://tooling/registry/source/load@0.1.0',
-      compose: path.join(specRoot, 'tooling/registry/source/compose.yaml')
-    },
-    {
-      id: 'lcod://tooling/registry/select@0.1.0',
-      compose: path.join(specRoot, 'tooling/registry/select/compose.yaml')
-    },
-    {
-      id: 'lcod://tooling/registry/resolution@0.1.0',
-      compose: path.join(specRoot, 'tooling/registry/resolution/compose.yaml')
-    }
-  ];
-  const defs = [];
-  for (const descriptor of descriptors) {
-    if (!fs.existsSync(descriptor.compose)) {
-      console.warn(`[tooling/registry] Compose file missing for ${descriptor.id}: ${descriptor.compose}`);
-      continue;
-    }
-    defs.push(descriptor);
-  }
-  return defs;
-}
-
-function loadCompose(def) {
-  if (composeCache.has(def.compose)) {
-    return composeCache.get(def.compose);
-  }
-  const raw = fs.readFileSync(def.compose, 'utf8');
+  const raw = fs.readFileSync(composePath, 'utf8');
   const doc = YAML.parse(raw);
   if (!doc || !Array.isArray(doc.compose)) {
-    throw new Error(`Invalid compose file for ${def.id}: ${def.compose}`);
+    throw new Error(`Invalid compose file: ${composePath}`);
   }
-  const entry = { steps: doc.compose, path: def.compose };
-  composeCache.set(def.compose, entry);
-  return entry;
+  composeCache.set(composePath, doc.compose);
+  return doc.compose;
 }
 
-export function registerRegistryComponents(registry) {
-  for (const def of componentDefs) {
-    registry.register(def.id, async (ctx, input = {}) => {
-      const { steps } = loadCompose(def);
-      const result = await runSteps(ctx, steps, input);
-      return result;
-    });
+export async function registerRegistryComponents(registry) {
+  const specRoot = resolveSpecRoot();
+  if (!specRoot) {
+    console.warn('[tooling/registry] Unable to locate lcod-spec repository; registry helpers will not be available.');
+    return registry;
   }
+  const registerPath = path.join(
+    specRoot,
+    'tooling/resolver/register_components/compose.yaml'
+  );
+  if (!fs.existsSync(registerPath)) {
+    console.warn(
+      `[tooling/registry] register_components compose not found: ${registerPath}`
+    );
+    return registry;
+  }
+  let steps;
+  try {
+    steps = loadComposeFromPath(registerPath);
+  } catch (err) {
+    console.warn(
+      `[tooling/registry] Failed to load register_components compose: ${err.message || err}`
+    );
+    return registry;
+  }
+  const ctx = new Context(registry);
+  let resultState;
+  try {
+    resultState = await runSteps(ctx, steps, { specRoot });
+  } catch (err) {
+    console.warn(
+      `[tooling/registry] Failed to execute register_components compose: ${err.message || err}`
+    );
+  }
+  if (resultState && Array.isArray(resultState.warnings) && resultState.warnings.length > 0) {
+    for (const warning of resultState.warnings) {
+      console.warn(`[tooling/registry] ${warning}`);
+    }
+  }
+
+  registry.register(
+    'lcod://tooling/resolver/register_components@0.1.0',
+    async (ctx, input = {}) => {
+      const override = typeof input.specRoot === 'string' && input.specRoot.length > 0
+        ? input.specRoot
+        : specRoot;
+      const bootstrapSteps = loadComposeFromPath(registerPath);
+      return runSteps(ctx, bootstrapSteps, { specRoot: override });
+    }
+  );
   return registry;
 }
