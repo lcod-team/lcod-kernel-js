@@ -49,6 +49,10 @@ function loadComposeFromPath(composePath) {
 }
 
 export async function registerRegistryComponents(registry) {
+  if (!registry.get('lcod://axiom/path/join@1')) {
+    console.warn('[tooling/registry] Skipping registry helper bootstrap: lcod://axiom/path/join@1 not registered.');
+    return registry;
+  }
   const specRoot = resolveSpecRoot();
   if (!specRoot) {
     console.warn('[tooling/registry] Unable to locate LCOD runtime or lcod-spec checkout; registry helpers will not be available.');

@@ -127,8 +127,8 @@ test('LCOD runtime bundle supports catalog generation', async (t) => {
     const registry = new Registry();
     registerFlowPrimitives(registry);
     registerNodeCore(registry);
-    registerTooling(registry);
     registerNodeResolverAxioms(registry);
+    registerTooling(registry);
 
     const ctx = new Context(registry);
     const fixturesRoot = path.join(

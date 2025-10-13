@@ -216,7 +216,6 @@ async function main() {
   const compose = loadComposeFile(composePath);
   const reg = new Registry();
   registerHttpContracts(reg);
-  registerTooling(reg);
   if (args.core) {
     registerNodeCore(reg);
     reg.register('lcod://flow/if@1', flowIf);
@@ -243,6 +242,7 @@ async function main() {
   if (args.resolver) {
     registerNodeResolverAxioms(reg);
   }
+  registerTooling(reg);
   if (args.modules) await loadModulesFromMap(reg, args.modules, { baseDir: process.cwd() });
   if (args.bind) {
     const bindingPath = path.resolve(process.cwd(), args.bind);
