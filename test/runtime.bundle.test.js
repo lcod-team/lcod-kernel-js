@@ -158,6 +158,7 @@ test('LCOD runtime bundle supports catalog generation', async (t) => {
     );
   } finally {
     restoreEnv(previousEnv);
+    refreshResolverHelperCache();
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 });
