@@ -11,6 +11,12 @@ export function registerTooling(registry) {
   registerResolverHelpers(registry);
   registerRegistryScope(registry);
   registerLogging(registry);
-  registerRegistryComponents(registry);
+  const bootstrapPromise = Promise.resolve()
+    .then(() => registerRegistryComponents(registry))
+    .catch((err) => {
+      console.warn(`[tooling] registry bootstrap failed: ${err?.message || err}`);
+      throw err;
+    });
+  registry.__toolingReady = bootstrapPromise;
   return registry;
 }

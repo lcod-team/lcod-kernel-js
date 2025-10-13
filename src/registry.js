@@ -18,7 +18,7 @@ import { getValidator } from './validate.js';
 import { StreamManager } from './core/streams.js';
 
 export class Context {
-  constructor(registry) {
+  constructor(registry, options = {}) {
     this.registry = registry;
     this.streams = new StreamManager();
     this.runChildren = async (_childrenArray, _localState, _slotVars) => { throw new Error('runChildren not available in this context'); };
@@ -26,6 +26,7 @@ export class Context {
     // Cleanup scopes for resources
     this._scopeStack = [];
     this._registryScopeStack = [];
+    this._skipRegistryReady = Boolean(options.skipRegistryReady);
   }
   defer(fn) {
     if (!this._scopeStack.length) this._scopeStack.push([]);
@@ -41,11 +42,26 @@ export class Context {
   async call(name, input, meta) {
     const dataIn = input ?? {};
 
+    const awaitRegistryReady = async () => {
+      if (this._skipRegistryReady) return;
+      const ready = this.registry?.__toolingReady;
+      if (!ready || typeof ready.then !== 'function') return;
+      await ready;
+    };
+
     let entry = this.registry.get(name);
+    if (!entry) {
+      await awaitRegistryReady();
+      entry = this.registry.get(name);
+    }
     if (!entry && typeof name === 'string' && name.startsWith('lcod://contract/')) {
       const implId = (this.registry.bindings || {})[name];
       if (implId && implId !== name) {
         entry = this.registry.get(implId);
+        if (!entry) {
+          await awaitRegistryReady();
+          entry = this.registry.get(implId);
+        }
         if (!entry) {
           throw new Error(`Implementation not registered for ${name}: ${implId}`);
         }
@@ -55,6 +71,13 @@ export class Context {
     }
 
     if (!entry) {
+      if (!this._skipRegistryReady) {
+        const ready = this.registry?.__toolingReady;
+        if (ready && typeof ready.catch === 'function') {
+          const err = await ready.then(() => null).catch((error) => error);
+          if (err) throw err;
+        }
+      }
       throw new Error(`Func not found: ${name}`);
     }
 

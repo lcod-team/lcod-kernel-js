@@ -72,7 +72,7 @@ export async function registerRegistryComponents(registry) {
     return registry;
   }
   const steps = loadComposeFromPath(registerPath);
-  const ctx = new Context(registry);
+  const ctx = new Context(registry, { skipRegistryReady: true });
   let resultState;
   try {
     resultState = await runSteps(ctx, steps, { specRoot });
