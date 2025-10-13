@@ -21,7 +21,8 @@ function getHelperDefinitions() {
 }
 
 export function refreshResolverHelperCache() {
-  helperDefsCache = buildHelperDefinitions();
+  helperDefsCache = null;
+  cache.clear();
 }
 
 function buildHelperDefinitions() {
