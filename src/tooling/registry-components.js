@@ -5,12 +5,17 @@ import YAML from 'yaml';
 
 import { runSteps } from '../compose/runtime.js';
 import { Context } from '../registry.js';
+import { getRuntimeRoot } from './runtime-locator.js';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, '..', '..');
 const composeCache = new Map();
 
 function resolveSpecRoot() {
+  const runtimeRoot = getRuntimeRoot();
+  if (runtimeRoot) {
+    return runtimeRoot;
+  }
   const envPath = process.env.SPEC_REPO_PATH;
   const candidates = [];
   if (envPath) candidates.push(path.resolve(envPath));
@@ -46,7 +51,7 @@ function loadComposeFromPath(composePath) {
 export async function registerRegistryComponents(registry) {
   const specRoot = resolveSpecRoot();
   if (!specRoot) {
-    console.warn('[tooling/registry] Unable to locate lcod-spec repository; registry helpers will not be available.');
+    console.warn('[tooling/registry] Unable to locate LCOD runtime or lcod-spec checkout; registry helpers will not be available.');
     return registry;
   }
   const registerPath = path.join(

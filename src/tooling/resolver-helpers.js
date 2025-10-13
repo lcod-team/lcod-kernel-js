@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { parse as parseToml } from '@iarna/toml';
 import { runSteps } from '../compose/runtime.js';
+import { getRuntimeResolverRoot } from './runtime-locator.js';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, '..', '..');
@@ -26,6 +27,10 @@ function buildHelperDefinitions() {
 
 function gatherResolverCandidates() {
   const out = [];
+  const runtimeResolverRoot = getRuntimeResolverRoot();
+  if (runtimeResolverRoot) {
+    out.push({ type: 'root', path: runtimeResolverRoot });
+  }
   if (process.env.LCOD_RESOLVER_COMPONENTS_PATH) {
     out.push({ type: 'components', path: path.resolve(process.env.LCOD_RESOLVER_COMPONENTS_PATH) });
   }

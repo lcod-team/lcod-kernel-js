@@ -38,3 +38,5 @@ Next:
 - [ ] Implement `--assemble` to bundle `lcp.lock` + `lcod_modules/`.
 - [ ] Prototype `--ship` (kernel + launcher) and document embedding options.
 - [ ] Explore `--build` targets (GraalVM/Node pkg) and record limitations.
+- [x] Support loading resolver/spec helpers from the shared runtime bundle (`LCOD_HOME`) with checksum verification.
+- [x] Provide a fallback/dev mode that auto-clones `lcod-spec`/`lcod-resolver` but warns when the bundle is absent in production runs.
