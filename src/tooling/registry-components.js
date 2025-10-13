@@ -6,6 +6,7 @@ import YAML from 'yaml';
 import { runSteps } from '../compose/runtime.js';
 import { Context } from '../registry.js';
 import { getRuntimeRoot } from './runtime-locator.js';
+import { logKernelWarn } from './logging.js';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, '..', '..');
@@ -58,7 +59,9 @@ function loadComposeFromPath(composePath) {
 export async function registerRegistryComponents(registry) {
   const specRoot = resolveSpecRoot();
   if (!specRoot) {
-    console.warn('[tooling/registry] Unable to locate LCOD runtime or lcod-spec checkout; registry helpers will not be available.');
+    await logKernelWarn(null, 'Unable to locate spec repository for registry helpers', {
+      tags: { module: 'registry-components' }
+    });
     return registry;
   }
   const registerPath = path.join(
@@ -66,9 +69,10 @@ export async function registerRegistryComponents(registry) {
     'tooling/resolver/register_components/compose.yaml'
   );
   if (!fs.existsSync(registerPath)) {
-    console.warn(
-      `[tooling/registry] register_components compose not found: ${registerPath}`
-    );
+    await logKernelWarn(null, 'register_components compose.yaml missing', {
+      data: { registerPath },
+      tags: { module: 'registry-components' }
+    });
     return registry;
   }
   const steps = loadComposeFromPath(registerPath);
@@ -77,18 +81,23 @@ export async function registerRegistryComponents(registry) {
   try {
     resultState = await runSteps(ctx, steps, { specRoot });
   } catch (err) {
-    console.warn(
-      `[tooling/registry] Failed to execute register_components compose: ${err.message || err}`
-    );
+    await logKernelWarn(null, 'Failed to execute register_components compose', {
+      data: { error: err?.message, specRoot },
+      tags: { module: 'registry-components' }
+    });
   }
   if (resultState && Array.isArray(resultState.warnings) && resultState.warnings.length > 0) {
     for (const warning of resultState.warnings) {
-      console.warn(`[tooling/registry] ${warning}`);
+      await logKernelWarn(null, warning, {
+        tags: { module: 'registry-components', stage: 'compose' }
+      });
     }
   }
 
   if (!registry.get('lcod://axiom/path/join@1')) {
-    console.warn('[tooling/registry] Skipping registry helper bootstrap: lcod://axiom/path/join@1 not registered.');
+    await logKernelWarn(null, 'Skipping registry helper bootstrap: path join axiom missing', {
+      tags: { module: 'registry-components' }
+    });
     return registry;
   }
 

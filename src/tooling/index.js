@@ -2,7 +2,7 @@ import { registerTestChecker } from './test-checker.js';
 import { registerScriptContract } from './script.js';
 import { registerResolverHelpers } from './resolver-helpers.js';
 import { registerRegistryScope } from './registry-scope.js';
-import { registerLogging } from './logging.js';
+import { registerLogging, logKernelWarn } from './logging.js';
 import { registerRegistryComponents } from './registry-components.js';
 
 export function registerTooling(registry) {
@@ -14,7 +14,10 @@ export function registerTooling(registry) {
   const bootstrapPromise = Promise.resolve()
     .then(() => registerRegistryComponents(registry))
     .catch((err) => {
-      console.warn(`[tooling] registry bootstrap failed: ${err?.message || err}`);
+      logKernelWarn(null, 'Registry bootstrap failed', {
+        data: { error: err?.message },
+        tags: { module: 'tooling/index' }
+      });
       throw err;
     });
   registry.__toolingReady = bootstrapPromise;

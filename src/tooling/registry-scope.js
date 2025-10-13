@@ -1,5 +1,6 @@
 import { normalizeCompose } from '../compose/normalizer.js';
 import { runSteps } from '../compose/runtime.js';
+import { logKernelWarn } from './logging.js';
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -25,7 +26,9 @@ async function registerInlineComponents(ctx, rawComponents) {
     if (!isPlainObject(entry)) continue;
     const componentId = typeof entry.id === 'string' ? entry.id.trim() : '';
     if (!componentId) {
-      console.warn('tooling/registry/scope@1: skipping inline component without a valid `id`.');
+      await logKernelWarn(ctx, 'Skipping inline component without a valid id', {
+        tags: { module: 'registry-scope', reason: 'missing-id' }
+      });
       continue;
     }
 
@@ -87,15 +90,17 @@ async function registerInlineComponents(ctx, rawComponents) {
     }
 
     if (entry.manifest) {
-      console.warn(
-        `tooling/registry/scope@1: inline component "${componentId}" with manifest is not yet supported; skipping.`
-      );
+      await logKernelWarn(ctx, 'Inline component manifest not supported', {
+        data: { componentId },
+        tags: { module: 'registry-scope', reason: 'manifest' }
+      });
       continue;
     }
 
-    console.warn(
-      `tooling/registry/scope@1: inline component "${componentId}" missing a supported definition; skipping.`
-    );
+    await logKernelWarn(ctx, 'Inline component missing supported definition', {
+      data: { componentId },
+      tags: { module: 'registry-scope', reason: 'unsupported' }
+    });
   }
 }
 

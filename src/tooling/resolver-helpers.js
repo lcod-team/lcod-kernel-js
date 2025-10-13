@@ -6,6 +6,7 @@ import YAML from 'yaml';
 import { parse as parseToml, stringify as stringifyToml } from '@iarna/toml';
 import { runSteps } from '../compose/runtime.js';
 import { getRuntimeResolverRoot } from './runtime-locator.js';
+import { logKernelWarn } from './logging.js';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, '..', '..');
@@ -80,7 +81,10 @@ function loadWorkspaceDefinitions(rootPath) {
   try {
     workspaceDoc = parseToml(fs.readFileSync(workspacePath, 'utf8'));
   } catch (err) {
-    console.warn(`Failed to parse workspace manifest at ${workspacePath}: ${err.message || err}`);
+    void logKernelWarn(null, 'Failed to parse workspace manifest', {
+      data: { workspacePath, error: err?.message },
+      tags: { module: 'resolver-helpers' }
+    });
     return [];
   }
   const workspace = workspaceDoc?.workspace || {};
@@ -99,7 +103,10 @@ function loadWorkspaceDefinitions(rootPath) {
     try {
       manifest = parseToml(fs.readFileSync(manifestPath, 'utf8'));
     } catch (err) {
-      console.warn(`Failed to parse package manifest at ${manifestPath}: ${err.message || err}`);
+      void logKernelWarn(null, 'Failed to parse package manifest', {
+        data: { manifestPath, error: err?.message },
+        tags: { module: 'resolver-helpers' }
+      });
       continue;
     }
     const context = createWorkspaceContext(manifest, aliasMap);
@@ -125,8 +132,11 @@ function loadWorkspaceDefinitions(rootPath) {
           if (compManifest?.id && compManifest.id !== canonicalId) {
             def.aliases.push(compManifest.id);
           }
-        } catch (_err) {
-          // ignore malformed component manifest
+        } catch (err) {
+          void logKernelWarn(null, 'Failed to parse component manifest', {
+            data: { componentManifestPath, error: err?.message },
+            tags: { module: 'resolver-helpers' }
+          });
         }
       }
       defs.push(def);
@@ -181,8 +191,11 @@ function loadLegacyComponentDefinitions(componentsDir) {
       try {
         const manifest = parseToml(fs.readFileSync(manifestPath, 'utf8'));
         componentId = manifest?.id;
-      } catch (_err) {
-        // ignore malformed manifest
+      } catch (err) {
+        void logKernelWarn(null, 'Failed to parse legacy component manifest', {
+          data: { manifestPath, error: err?.message },
+          tags: { module: 'resolver-helpers' }
+        });
       }
     }
     if (!componentId || typeof componentId !== 'string') {

@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { logKernelWarn } from './logging.js';
+
 let cachedState = 'unknown';
 let cachedRoot = null;
 let cachedManifest = null;
@@ -30,9 +32,10 @@ export function getRuntimeRoot() {
       return candidate;
     }
   } catch (err) {
-    console.warn(
-      `[lcod] Failed to read runtime manifest at ${manifestPath}: ${err.message}`
-    );
+    logKernelWarn(null, 'Failed to read runtime manifest', {
+      data: { manifestPath, error: err?.message },
+      tags: { module: 'runtime-locator' }
+    });
   }
 
   cachedState = 'absent';

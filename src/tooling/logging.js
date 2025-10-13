@@ -151,3 +151,66 @@ export function popLogScope(ctx) {
   if (!ctx._logScope || ctx._logScope.length === 0) return;
   ctx._logScope.pop();
 }
+
+function createFallbackContext() {
+  return {
+    registry: {
+      bindings: {},
+      get: () => undefined
+    },
+    _logScope: []
+  };
+}
+
+function normalizeLogOptions(options = {}) {
+  const out = {};
+  if (options && typeof options === 'object') {
+    if (options.data && typeof options.data === 'object' && Object.keys(options.data).length > 0) {
+      out.data = options.data;
+    }
+    if (options.tags && typeof options.tags === 'object' && Object.keys(options.tags).length > 0) {
+      out.tags = options.tags;
+    }
+  }
+  return out;
+}
+
+async function emitKernelLog(ctx, level, message, options = {}) {
+  const payload = {
+    level,
+    message,
+    ...normalizeLogOptions(options)
+  };
+  const targetCtx = ctx && typeof ctx === 'object' ? ctx : createFallbackContext();
+  try {
+    await emitLog(targetCtx, payload, { component: 'kernel' });
+  } catch (err) {
+    writeFallback({
+      level: 'error',
+      message: 'failed to emit kernel log',
+      timestamp: nowIso(),
+      data: {
+        originalLevel: level,
+        originalMessage: message,
+        error: err?.message
+      },
+      tags: { component: 'kernel' }
+    });
+  }
+}
+
+export function logKernelDebug(ctx, message, options) {
+  return emitKernelLog(ctx, 'debug', message, options);
+}
+
+export function logKernelInfo(ctx, message, options) {
+  return emitKernelLog(ctx, 'info', message, options);
+}
+
+export function logKernelWarn(ctx, message, options) {
+  return emitKernelLog(ctx, 'warn', message, options);
+}
+
+export function logKernelError(ctx, message, options) {
+  return emitKernelLog(ctx, 'error', message, options);
+}
