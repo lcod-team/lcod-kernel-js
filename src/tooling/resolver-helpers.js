@@ -34,6 +34,7 @@ function buildHelperDefinitions() {
       collected.push(...defs);
     }
   }
+  ensureFallbackHelperDefinitions(collected);
   return collected;
 }
 
@@ -291,6 +292,58 @@ async function loadHelper(def) {
   throw new Error(
     `Unable to locate resolver helper "${def.id}". Last error: ${lastError?.message || 'not found'}`
   );
+}
+
+function ensureFallbackHelperDefinitions(collected) {
+  const ids = new Set(collected.map((def) => def.id));
+  if (!ids.has('lcod://tooling/registry/catalog/generate@0.1.0')) {
+    const specRoot = locateSpecRepo();
+    if (specRoot) {
+      const composePath = path.join(
+        specRoot,
+        'tooling',
+        'registry',
+        'catalog',
+        'compose.yaml'
+      );
+      if (fs.existsSync(composePath)) {
+        collected.push({
+          id: 'lcod://tooling/registry/catalog/generate@0.1.0',
+          composePath,
+          context: {
+            basePath: 'tooling/registry/catalog',
+            version: '0.1.0',
+            aliasMap: {}
+          },
+          cacheKey: `lcod://tooling/registry/catalog/generate@0.1.0::${composePath}`,
+          aliases: []
+        });
+      }
+    }
+  }
+}
+
+function locateSpecRepo() {
+  const candidates = [];
+  if (process.env.SPEC_REPO_PATH) {
+    candidates.push(path.resolve(process.env.SPEC_REPO_PATH));
+  }
+  candidates.push(path.resolve(repoRoot, '..', 'lcod-spec'));
+  candidates.push(path.resolve(process.cwd(), '..', 'lcod-spec'));
+  candidates.push(path.resolve(process.cwd(), '../lcod-spec'));
+  for (const candidate of candidates) {
+    try {
+      const stats = fs.statSync(candidate);
+      if (!stats.isDirectory()) continue;
+      const catalogCompose = path.join(candidate, 'tooling', 'registry', 'catalog', 'compose.yaml');
+      if (fs.existsSync(catalogCompose)) {
+        return candidate;
+      }
+    } catch (_) {
+      // ignore missing candidate
+    }
+  }
+  return null;
 }
 
 function ensureResolverAxiomFallbacks(registry) {
