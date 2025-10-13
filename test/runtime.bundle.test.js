@@ -15,8 +15,19 @@ const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, '..');
 
 test('LCOD runtime bundle supports catalog generation', async (t) => {
-  const specRoot = await locateRepo(process.env.SPEC_REPO_PATH, '../lcod-spec');
-  const resolverRoot = await locateRepo(process.env.LCOD_RESOLVER_PATH, '../lcod-resolver');
+  const specRoot = await locateRepo(process.env.SPEC_REPO_PATH, '../lcod-spec').catch(() => null);
+  if (!specRoot) {
+    t.skip('lcod-spec repository not available');
+    return;
+  }
+  const resolverRoot = await locateRepo(
+    process.env.LCOD_RESOLVER_PATH,
+    '../lcod-resolver'
+  ).catch(() => null);
+  if (!resolverRoot) {
+    t.skip('lcod-resolver repository not available');
+    return;
+  }
 
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-runtime-js-'));
   const runtimeRoot = path.join(tempRoot, 'lcod-runtime-test');
