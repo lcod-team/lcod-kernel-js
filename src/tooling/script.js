@@ -216,7 +216,11 @@ export function registerScriptContract(registry) {
     const pendingLogs = [];
 
     const sandbox = {
-      console: createConsole(ctx, messages, pendingLogs)
+      console: createConsole(ctx, messages, pendingLogs),
+      process: Object.freeze({
+        env: Object.freeze({ ...process.env }),
+        cwd: () => process.cwd()
+      })
     };
     vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
 

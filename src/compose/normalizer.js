@@ -5,6 +5,7 @@ import YAML from 'yaml';
 import { Registry, Context } from '../registry.js';
 import { runSteps } from './runtime.js';
 import { registerTooling } from '../tooling/index.js';
+import { registerNodeCore, registerNodeResolverAxioms } from '../core/index.js';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, '..', '..');
@@ -84,7 +85,10 @@ async function loadNormalizerSteps() {
 let sharedRegistry;
 function getRegistry() {
   if (!sharedRegistry) {
-    const reg = registerTooling(new Registry());
+    const reg = new Registry();
+    registerNodeCore(reg);
+    registerNodeResolverAxioms(reg);
+    registerTooling(reg);
     reg.register('lcod://impl/set@1', async (_ctx, input = {}) => ({ ...input }));
     sharedRegistry = reg;
   }

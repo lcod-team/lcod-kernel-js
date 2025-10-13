@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { parse as parseToml } from '@iarna/toml';
+import { parse as parseToml, stringify as stringifyToml } from '@iarna/toml';
 import { runSteps } from '../compose/runtime.js';
 import { getRuntimeResolverRoot } from './runtime-locator.js';
 
@@ -293,7 +293,54 @@ async function loadHelper(def) {
   );
 }
 
+function ensureResolverAxiomFallbacks(registry) {
+  const aliasContract = (contractId, axiomId) => {
+    if (registry.get(axiomId)) return;
+    const entry = registry.get(contractId);
+    if (!entry) return;
+    registry.register(axiomId, entry.fn, {
+      inputSchema: entry.inputSchema,
+      outputSchema: entry.outputSchema,
+      implements: entry.implements
+    });
+  };
+
+  if (!registry.get('lcod://axiom/path/join@1')) {
+    registry.register('lcod://axiom/path/join@1', async (_ctx, input = {}) => {
+      const base = typeof input.base === 'string' ? input.base : String(input.base ?? '');
+      const segment = typeof input.segment === 'string' ? input.segment : String(input.segment ?? '');
+      return { path: path.join(base, segment) };
+    });
+  }
+
+  aliasContract('lcod://contract/core/fs/read-file@1', 'lcod://axiom/fs/read-file@1');
+
+  if (!registry.get('lcod://axiom/json/parse@1')) {
+    registry.register('lcod://axiom/json/parse@1', async (_ctx, input = {}) => {
+      const text = input.text;
+      if (typeof text !== 'string') throw new Error('text is required');
+      return { value: JSON.parse(text) };
+    });
+  }
+
+  if (!registry.get('lcod://axiom/toml/parse@1')) {
+    registry.register('lcod://axiom/toml/parse@1', async (_ctx, input = {}) => {
+      const text = input.text;
+      if (typeof text !== 'string') throw new Error('text is required');
+      return { value: parseToml(text) };
+    });
+  }
+
+  if (!registry.get('lcod://axiom/toml/stringify@1')) {
+    registry.register('lcod://axiom/toml/stringify@1', async (_ctx, input = {}) => {
+      const value = input.value ?? {};
+      return { text: stringifyToml(value) };
+    });
+  }
+}
+
 export function registerResolverHelpers(registry) {
+  ensureResolverAxiomFallbacks(registry);
   const helperDefs = getHelperDefinitions();
   for (const def of helperDefs) {
     const ids = [def.id, ...(def.aliases || [])];

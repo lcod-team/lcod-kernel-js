@@ -11,6 +11,22 @@ function buildCandidates() {
   if (process.env.LCOD_RESOLVER_COMPOSE) {
     list.push(path.resolve(process.env.LCOD_RESOLVER_COMPOSE));
   }
+  if (process.env.LCOD_RESOLVER_PATH) {
+    list.push(
+      path.resolve(
+        process.env.LCOD_RESOLVER_PATH,
+        'packages',
+        'resolver',
+        'compose.yaml'
+      )
+    );
+    list.push(
+      path.resolve(
+        process.env.LCOD_RESOLVER_PATH,
+        'compose.yaml'
+      )
+    );
+  }
   if (process.env.SPEC_REPO_PATH) {
     list.push(
       path.resolve(
