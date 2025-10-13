@@ -12,20 +12,27 @@ const repoRoot = path.resolve(moduleDir, '..', '..');
 const composeCache = new Map();
 
 function resolveSpecRoot() {
-  const runtimeRoot = getRuntimeRoot();
-  if (runtimeRoot) {
-    return runtimeRoot;
-  }
-  const envPath = process.env.SPEC_REPO_PATH;
+  const hasRegisterCompose = (root) => {
+    const registerCompose = path.join(root, 'tooling/resolver/register_components/compose.yaml');
+    try {
+      return fs.statSync(registerCompose).isFile();
+    } catch (_) {
+      return false;
+    }
+  };
+
   const candidates = [];
-  if (envPath) candidates.push(path.resolve(envPath));
+  const runtimeRoot = getRuntimeRoot();
+  if (runtimeRoot) candidates.push(runtimeRoot);
+  if (process.env.SPEC_REPO_PATH) candidates.push(path.resolve(process.env.SPEC_REPO_PATH));
   candidates.push(path.resolve(repoRoot, '..', 'lcod-spec'));
   candidates.push(path.resolve(process.cwd(), '../lcod-spec'));
   candidates.push(path.resolve(process.cwd(), '../../lcod-spec'));
+
   for (const candidate of candidates) {
     try {
-      const stat = fs.statSync(candidate);
-      if (stat.isDirectory()) {
+      if (!fs.statSync(candidate).isDirectory()) continue;
+      if (hasRegisterCompose(candidate)) {
         return candidate;
       }
     } catch (_) {
@@ -49,10 +56,6 @@ function loadComposeFromPath(composePath) {
 }
 
 export async function registerRegistryComponents(registry) {
-  if (!registry.get('lcod://axiom/path/join@1')) {
-    console.warn('[tooling/registry] Skipping registry helper bootstrap: lcod://axiom/path/join@1 not registered.');
-    return registry;
-  }
   const specRoot = resolveSpecRoot();
   if (!specRoot) {
     console.warn('[tooling/registry] Unable to locate LCOD runtime or lcod-spec checkout; registry helpers will not be available.');
@@ -68,15 +71,7 @@ export async function registerRegistryComponents(registry) {
     );
     return registry;
   }
-  let steps;
-  try {
-    steps = loadComposeFromPath(registerPath);
-  } catch (err) {
-    console.warn(
-      `[tooling/registry] Failed to load register_components compose: ${err.message || err}`
-    );
-    return registry;
-  }
+  const steps = loadComposeFromPath(registerPath);
   const ctx = new Context(registry);
   let resultState;
   try {
@@ -90,6 +85,11 @@ export async function registerRegistryComponents(registry) {
     for (const warning of resultState.warnings) {
       console.warn(`[tooling/registry] ${warning}`);
     }
+  }
+
+  if (!registry.get('lcod://axiom/path/join@1')) {
+    console.warn('[tooling/registry] Skipping registry helper bootstrap: lcod://axiom/path/join@1 not registered.');
+    return registry;
   }
 
   registry.register(

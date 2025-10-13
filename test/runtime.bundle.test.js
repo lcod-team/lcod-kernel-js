@@ -118,7 +118,7 @@ test('LCOD runtime bundle supports catalog generation', async (t) => {
   };
 
   process.env.LCOD_HOME = runtimeRoot;
-  process.env.SPEC_REPO_PATH = runtimeRoot;
+  process.env.SPEC_REPO_PATH = specRoot;
   process.env.LCOD_RESOLVER_PATH = path.join(runtimeRoot, 'resolver');
   process.env.LCOD_RESOLVER_COMPONENTS_PATH = path.join(runtimeRoot, 'resolver', 'packages', 'resolver', 'components');
   refreshResolverHelperCache();
