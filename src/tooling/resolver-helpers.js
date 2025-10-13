@@ -10,8 +10,19 @@ import { getRuntimeResolverRoot } from './runtime-locator.js';
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, '..', '..');
 
-const helperDefs = buildHelperDefinitions();
+let helperDefsCache = null;
 const cache = new Map();
+
+function getHelperDefinitions() {
+  if (!helperDefsCache) {
+    helperDefsCache = buildHelperDefinitions();
+  }
+  return helperDefsCache;
+}
+
+export function refreshResolverHelperCache() {
+  helperDefsCache = buildHelperDefinitions();
+}
 
 function buildHelperDefinitions() {
   const candidates = gatherResolverCandidates();
@@ -282,6 +293,7 @@ async function loadHelper(def) {
 }
 
 export function registerResolverHelpers(registry) {
+  const helperDefs = getHelperDefinitions();
   for (const def of helperDefs) {
     const ids = [def.id, ...(def.aliases || [])];
     for (const id of ids) {

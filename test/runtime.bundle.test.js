@@ -10,6 +10,7 @@ import { Registry, Context } from '../src/registry.js';
 import { registerNodeCore, registerNodeResolverAxioms } from '../src/core/index.js';
 import { registerFlowPrimitives } from '../src/flow/register.js';
 import { registerTooling } from '../src/tooling/index.js';
+import { refreshResolverHelperCache } from '../src/tooling/resolver-helpers.js';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, '..');
@@ -120,6 +121,7 @@ test('LCOD runtime bundle supports catalog generation', async (t) => {
   delete process.env.SPEC_REPO_PATH;
   delete process.env.LCOD_RESOLVER_PATH;
   delete process.env.LCOD_RESOLVER_COMPONENTS_PATH;
+  refreshResolverHelperCache();
 
   try {
     const registry = new Registry();
