@@ -32,6 +32,7 @@ Next:
 
 ## M4 — Observability & logging
 - [x] Implement the `lcod://tooling/log@1` contract once finalised in the spec (structured logging toward the host).
+- [ ] Ship a default CLI-friendly logging binding (stdout/stderr) in the packaged distribution.
 - [ ] Add a trace mode (`--trace`) to `bin/run-compose.mjs` to inspect scope mutations.
 
 ## M5 — Packaging & distribution
