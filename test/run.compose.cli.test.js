@@ -82,6 +82,9 @@ test('run-compose resolver CLI wires project/output/cache flags', async (t) => {
     const result = JSON.parse(stdout);
     assert.equal(result.lockPath, outputLock);
     assert.ok(Array.isArray(result.components));
+    if (!Array.isArray(result.components) || result.components.length === 0) {
+      console.error('run-compose resolver result (debug):', JSON.stringify(result, null, 2));
+    }
     const lockText = await fs.readFile(outputLock, 'utf8');
     assert.ok(lockText.includes('schemaVersion'));
     const defaultCache = path.join(tempProject, '.lcod', 'cache');
@@ -94,6 +97,19 @@ test('run-compose resolver CLI wires project/output/cache flags', async (t) => {
           found.push(candidate);
         }
       } catch {}
+    }
+    if (found.length === 0) {
+      console.error('cache directories missing; candidates:', cacheCandidates);
+      try {
+        const listing = await Promise.all(cacheCandidates.map(async (candidate) => {
+          const parent = path.dirname(candidate);
+          const entries = await fs.readdir(parent).catch(() => []);
+          return { candidate, entries };
+        }));
+        console.error('parent listings:', JSON.stringify(listing, null, 2));
+      } catch (err) {
+        console.error('failed to inspect cache directories', err);
+      }
     }
     assert.ok(found.length > 0, 'expected at least one cache directory to exist');
   } finally {

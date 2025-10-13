@@ -139,13 +139,19 @@ test('LCOD runtime bundle supports catalog generation', async (t) => {
       'test',
       'fixtures'
     );
-    const result = await ctx.call(
-      'lcod://tooling/registry/catalog/generate@0.1.0',
-      {
-        rootPath: fixturesRoot,
-        catalogPath: 'catalog.json',
-      }
-    );
+    let result;
+    try {
+      result = await ctx.call(
+        'lcod://tooling/registry/catalog/generate@0.1.0',
+        {
+          rootPath: fixturesRoot,
+          catalogPath: 'catalog.json',
+        }
+      );
+    } catch (err) {
+      console.error('[runtime bundle] available helper IDs:', Array.from(registry._registry.keys?.() || []));
+      throw err;
+    }
 
     assert.ok(
       typeof result.packagesJsonl === 'string' &&
