@@ -296,30 +296,36 @@ async function loadHelper(def) {
 
 function ensureFallbackHelperDefinitions(collected) {
   const ids = new Set(collected.map((def) => def.id));
-  if (!ids.has('lcod://tooling/registry/catalog/generate@0.1.0')) {
-    const specRoot = locateSpecRepo();
-    if (specRoot) {
-      const composePath = path.join(
-        specRoot,
-        'tooling',
-        'registry',
-        'catalog',
-        'compose.yaml'
-      );
-      if (fs.existsSync(composePath)) {
-        collected.push({
-          id: 'lcod://tooling/registry/catalog/generate@0.1.0',
-          composePath,
-          context: {
-            basePath: 'tooling/registry/catalog',
-            version: '0.1.0',
-            aliasMap: {}
-          },
-          cacheKey: `lcod://tooling/registry/catalog/generate@0.1.0::${composePath}`,
-          aliases: []
-        });
-      }
-    }
+  const specRoot = locateSpecRepo();
+  if (specRoot) {
+    const ensureHelper = (id, composeRelPath, basePath, version = '0.1.0') => {
+      if (ids.has(id)) return;
+      const composePath = path.join(specRoot, ...composeRelPath);
+      if (!fs.existsSync(composePath)) return;
+      collected.push({
+        id,
+        composePath,
+        context: {
+          basePath,
+          version,
+          aliasMap: {}
+        },
+        cacheKey: `${id}::${composePath}`,
+        aliases: []
+      });
+    };
+
+    ensureHelper(
+      'lcod://tooling/registry/catalog/generate@0.1.0',
+      ['tooling', 'registry', 'catalog', 'compose.yaml'],
+      'tooling/registry/catalog'
+    );
+
+    ensureHelper(
+      'lcod://tooling/resolver/register_components@0.1.0',
+      ['tooling', 'resolver', 'register_components', 'compose.yaml'],
+      'tooling/resolver/register_components'
+    );
   }
 }
 
