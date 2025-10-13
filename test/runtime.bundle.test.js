@@ -149,7 +149,8 @@ test('LCOD runtime bundle supports catalog generation', async (t) => {
         }
       );
     } catch (err) {
-      console.error('[runtime bundle] available helper IDs:', Array.from(registry._registry.keys?.() || []));
+      const ids = Array.from(registry.funcs?.keys?.() || []);
+      console.error('[runtime bundle] available helper IDs:', ids);
       throw err;
     }
 

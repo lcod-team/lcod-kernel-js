@@ -65,6 +65,11 @@ test('run-compose resolver CLI wires project/output/cache flags', async (t) => {
     if (specRoot) {
       env.SPEC_REPO_PATH = specRoot;
     }
+    if (composePath) {
+      const resolverRoot = path.resolve(composePath, '..', '..', '..');
+      env.LCOD_RESOLVER_PATH = resolverRoot;
+      env.LCOD_RESOLVER_COMPONENTS_PATH = path.join(resolverRoot, 'packages', 'resolver', 'components');
+    }
 
     const { stdout } = await execFileAsync('node', [
       'bin/run-compose.mjs',
