@@ -26,6 +26,7 @@ node bin/run-compose.mjs --compose ../lcod-spec/examples/demo/my_weather/compose
 # --resolver   register resolver axioms (implies --core) and enables:
 #                --project <dir>     override projectPath (defaults to CWD)
 #                --config <file>     pass resolve.config.json explicitly
+#                --sources <file>    override sources.json (defaults to <project>/sources.json)
 #                --output <file>     choose lcp.lock destination (defaults to <project>/lcp.lock)
 #                --cache-dir <dir>   set LCOD_CACHE_DIR before execution
 ```

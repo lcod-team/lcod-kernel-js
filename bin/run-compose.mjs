@@ -31,7 +31,8 @@ function parseArgs(argv) {
     project: null,
     config: null,
     output: null,
-    cacheDir: null
+    cacheDir: null,
+    sources: null
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -47,6 +48,7 @@ function parseArgs(argv) {
     else if (a === '--config') args.config = argv[++i];
     else if (a === '--output') args.output = argv[++i];
     else if (a === '--cache-dir') args.cacheDir = argv[++i];
+    else if (a === '--sources') args.sources = argv[++i];
   }
   return args;
 }
@@ -209,7 +211,7 @@ async function main() {
     args.core = true;
   }
   if (!args.compose) {
-    console.error('Usage: run-compose --compose path/to/compose.yaml [--demo] [--state state.json]');
+    console.error('Usage: run-compose --compose path/to/compose.yaml [--demo] [--resolver] [--sources sources.json] [--state state.json]');
     process.exit(2);
   }
   const composePath = path.resolve(process.cwd(), args.compose);
@@ -261,6 +263,9 @@ async function main() {
     state.projectPath = resolvedProject;
     if (args.config) {
       state.configPath = path.resolve(process.cwd(), args.config);
+    }
+    if (args.sources) {
+      state.sourcesPath = path.resolve(process.cwd(), args.sources);
     }
     if (args.output) {
       state.outputPath = path.resolve(process.cwd(), args.output);

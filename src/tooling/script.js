@@ -270,7 +270,19 @@ export function registerScriptContract(registry) {
     try {
       userFn = compileFunction(source, sandbox, timeout);
     } catch (err) {
-      throw new Error(`Failed to compile script: ${err.message}`);
+      let previewHead = '';
+      let previewTail = '';
+      if (typeof source === 'string') {
+        const lines = source.split('\n');
+        previewHead = lines.slice(0, 12).join('\n');
+        if (lines.length > 12) {
+          previewTail = lines.slice(-12).join('\n');
+        }
+      } else {
+        previewHead = String(source);
+      }
+      const tailSection = previewTail ? `\n--- script tail ---\n${previewTail}` : '';
+      throw new Error(`Failed to compile script: ${err.message}\n--- script preview ---\n${previewHead}${tailSection}\n--- end script preview ---`);
     }
 
     try {
