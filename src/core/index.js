@@ -13,6 +13,52 @@ import { registerStreamContracts, StreamManager } from './streams.js';
 
 const execFileAsync = promisify(execFile);
 
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function cloneContainer(value) {
+  if (Array.isArray(value)) return value.slice();
+  if (isPlainObject(value)) return { ...value };
+  return value;
+}
+
+function normalizePathSegment(segment) {
+  if (typeof segment === 'number' && Number.isInteger(segment)) return segment;
+  if (typeof segment === 'string' && segment.length > 0) return segment;
+  throw new Error(`invalid path segment: ${String(segment)}`);
+}
+
+function coerceArrayIndex(segment) {
+  if (typeof segment === 'number' && Number.isInteger(segment)) return segment;
+  const parsed = Number.parseInt(String(segment), 10);
+  if (Number.isNaN(parsed)) throw new Error(`invalid array index: ${String(segment)}`);
+  return parsed;
+}
+
+function resolveObjectPath(source, segments) {
+  if (!Array.isArray(segments)) throw new Error('path must be an array');
+  if (segments.length === 0) return { value: source, found: true };
+  let current = source;
+  for (const rawSegment of segments) {
+    const segment = normalizePathSegment(rawSegment);
+    if (Array.isArray(current)) {
+      const index = coerceArrayIndex(segment);
+      if (index < 0 || index >= current.length) return { value: undefined, found: false };
+      current = current[index];
+    } else if (isPlainObject(current)) {
+      const key = typeof segment === 'string' ? segment : String(segment);
+      if (!Object.prototype.hasOwnProperty.call(current, key)) {
+        return { value: undefined, found: false };
+      }
+      current = current[key];
+    } else {
+      return { value: undefined, found: false };
+    }
+  }
+  return { value: current, found: true };
+}
+
 function resolveCacheCandidates(projectPath) {
   const candidates = [];
   if (projectPath) candidates.push(path.join(projectPath, '.lcod', 'cache'));
@@ -364,6 +410,91 @@ export function registerNodeCore(reg) {
     };
   });
 
+  reg.register('lcod://contract/core/array/length@1', async (_ctx, input = {}) => {
+    const { items } = input;
+    if (!Array.isArray(items)) throw new Error('items must be an array');
+    return { length: items.length };
+  });
+
+  reg.register('lcod://contract/core/array/push@1', async (_ctx, input = {}) => {
+    const { items, value, clone = true } = input;
+    if (!Array.isArray(items)) throw new Error('items must be an array');
+    const target = clone ? items.slice() : items;
+    target.push(value);
+    return { items: target, length: target.length };
+  });
+
+  reg.register('lcod://contract/core/object/get@1', async (_ctx, input = {}) => {
+    const { object, path: segments, default: defaultValue } = input;
+    if (!isPlainObject(object) && !Array.isArray(object)) {
+      throw new Error('object must be an object');
+    }
+    if (!Array.isArray(segments)) throw new Error('path must be an array');
+    const { value, found } = resolveObjectPath(object, segments);
+    return { value: found ? value : defaultValue, found };
+  });
+
+  reg.register('lcod://contract/core/object/set@1', async (_ctx, input = {}) => {
+    const { object, path: segments, value, clone = true, createMissing = true } = input;
+    if (!isPlainObject(object) && !Array.isArray(object)) {
+      throw new Error('object must be an object');
+    }
+    if (!Array.isArray(segments) || segments.length === 0) {
+      throw new Error('path must be a non-empty array');
+    }
+    const { found } = resolveObjectPath(object, segments);
+    const targetRoot = clone ? cloneContainer(object) : object;
+    let cursor = targetRoot;
+    for (let i = 0; i < segments.length; i += 1) {
+      const segment = normalizePathSegment(segments[i]);
+      const last = i === segments.length - 1;
+      if (last) {
+        if (Array.isArray(cursor)) {
+          const index = coerceArrayIndex(segment);
+          cursor[index] = value;
+        } else if (isPlainObject(cursor)) {
+          const key = typeof segment === 'string' ? segment : String(segment);
+          cursor[key] = value;
+        } else {
+          throw new Error(`cannot set value at segment ${String(segment)}`);
+        }
+      } else {
+        const nextSegment = normalizePathSegment(segments[i + 1]);
+        if (Array.isArray(cursor)) {
+          const index = coerceArrayIndex(segment);
+          let next = cursor[index];
+          if (next == null) {
+            if (!createMissing) {
+              throw new Error(`missing segment ${String(segment)}`);
+            }
+            next = typeof nextSegment === 'number' ? [] : {};
+          } else if (clone) {
+            next = cloneContainer(next);
+          }
+          cursor[index] = next;
+          cursor = next;
+        } else if (isPlainObject(cursor)) {
+          const key = typeof segment === 'string' ? segment : String(segment);
+          let next = cursor[key];
+          if (next == null) {
+            if (!createMissing) {
+              throw new Error(`missing segment ${String(segment)}`);
+            }
+            next = typeof nextSegment === 'number' ? [] : {};
+          } else if (clone) {
+            next = cloneContainer(next);
+          }
+          cursor[key] = next;
+          cursor = next;
+        } else {
+          throw new Error(`cannot traverse segment ${String(segment)}`);
+        }
+      }
+    }
+
+    return { object: targetRoot, created: !found };
+  });
+
   return reg;
 }
 
@@ -442,6 +573,10 @@ export function registerNodeResolverAxioms(reg) {
   aliasContract('lcod://contract/core/fs/write-file@1', 'lcod://axiom/fs/write-file@1');
   aliasContract('lcod://contract/core/hash/sha256@1', 'lcod://axiom/hash/sha256@1');
   aliasContract('lcod://contract/core/git/clone@1', 'lcod://axiom/git/clone@1');
+  aliasContract('lcod://contract/core/array/length@1', 'lcod://axiom/array/length@1');
+  aliasContract('lcod://contract/core/array/push@1', 'lcod://axiom/array/push@1');
+  aliasContract('lcod://contract/core/object/get@1', 'lcod://axiom/object/get@1');
+  aliasContract('lcod://contract/core/object/set@1', 'lcod://axiom/object/set@1');
 
   reg.register('lcod://contract/tooling/resolve-dependency@1', async (_ctx, input = {}) => {
     const dependency = typeof input.dependency === 'string' && input.dependency
@@ -463,4 +598,3 @@ export function registerNodeResolverAxioms(reg) {
 
   return reg;
 }
-

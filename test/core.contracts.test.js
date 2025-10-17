@@ -119,3 +119,77 @@ test('core/parse json/toml/csv', async () => {
   const csv = await ctx.call('lcod://contract/core/parse/csv@1', { text: 'a,b\n1,2', header: true });
   assert.deepEqual(csv.rows, [{ a: '1', b: '2' }]);
 });
+
+test('core/array length and push', async () => {
+  const ctx = createContext();
+  const array = [1, 2, 3];
+  const lengthResult = await ctx.call('lcod://contract/core/array/length@1', { items: array });
+  assert.equal(lengthResult.length, 3);
+
+  const pushImmutable = await ctx.call('lcod://contract/core/array/push@1', {
+    items: array,
+    value: 4,
+    clone: true
+  });
+  assert.deepEqual(pushImmutable.items, [1, 2, 3, 4]);
+  assert.equal(pushImmutable.length, 4);
+  assert.deepEqual(array, [1, 2, 3], 'original array remains intact when clone=true');
+
+  const pushMutable = await ctx.call('lcod://contract/core/array/push@1', {
+    items: array,
+    value: 5,
+    clone: false
+  });
+  assert.deepEqual(pushMutable.items, [1, 2, 3, 5]);
+  assert.equal(pushMutable.length, 4);
+  assert.deepEqual(array, [1, 2, 3, 5], 'original array mutated when clone=false');
+});
+
+test('core/object get and set', async () => {
+  const ctx = createContext();
+  const base = { nested: { value: 42 }, list: [10, 20] };
+
+  const getExisting = await ctx.call('lcod://contract/core/object/get@1', {
+    object: base,
+    path: ['nested', 'value']
+  });
+  assert.equal(getExisting.value, 42);
+  assert.equal(getExisting.found, true);
+
+  const getMissing = await ctx.call('lcod://contract/core/object/get@1', {
+    object: base,
+    path: ['nested', 'missing'],
+    default: 'fallback'
+  });
+  assert.equal(getMissing.value, 'fallback');
+  assert.equal(getMissing.found, false);
+
+  const setImmutable = await ctx.call('lcod://contract/core/object/set@1', {
+    object: base,
+    path: ['nested', 'value'],
+    value: 99,
+    clone: true
+  });
+  assert.equal(setImmutable.created, false);
+  assert.equal(setImmutable.object.nested.value, 99);
+  assert.equal(base.nested.value, 42, 'original object remains intact when clone=true');
+
+  const setCreate = await ctx.call('lcod://contract/core/object/set@1', {
+    object: base,
+    path: ['extra', 'flag'],
+    value: true,
+    clone: false,
+    createMissing: true
+  });
+  assert.equal(setCreate.created, true);
+  assert.equal(base.extra.flag, true);
+
+  const setArrayIndex = await ctx.call('lcod://contract/core/object/set@1', {
+    object: base,
+    path: ['list', 1],
+    value: 25,
+    clone: false
+  });
+  assert.equal(setArrayIndex.created, false);
+  assert.deepEqual(base.list, [10, 25]);
+});
