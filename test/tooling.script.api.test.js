@@ -105,3 +105,22 @@ test('console methods forward to logging contract', async () => {
   assert.ok(captured[1].message.includes('warned'));
   assert.ok(captured[1].message.includes('123'));
 });
+
+test('tooling/script accepts trailing semicolons in source', async () => {
+  const registry = createRegistry();
+  const ctx = new Context(registry);
+
+  const result = await ctx.call(
+    'lcod://tooling/script@1',
+    {
+      source: `({ state }) => {
+        return { success: true, copy: { ...state } };
+      };`,
+      input: { foo: 'bar' }
+    },
+    null
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(result.copy.foo, 'bar');
+});

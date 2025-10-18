@@ -87,7 +87,10 @@ function registerStreams(ctx, state, specs) {
 }
 
 function compileFunction(source, sandbox, timeout) {
-  const wrapped = `(${source})`;
+  const trimmed = typeof source === 'string' ? source.trim() : source;
+  const normalized =
+    typeof trimmed === 'string' ? trimmed.replace(/;\s*$/, '') : trimmed;
+  const wrapped = `(${normalized})`;
   const script = new vm.Script(wrapped, { displayErrors: true, timeout });
   const fn = script.runInContext(sandbox, { timeout });
   if (typeof fn !== 'function') {
