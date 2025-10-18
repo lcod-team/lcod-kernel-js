@@ -10,6 +10,7 @@ Includes:
 - Test runner (axiom mocks)
 - Stable API: `Func(ctx, input) -> output`, `Registry`, `Context.call()`
 - Flow operators: `if`, `foreach`, `parallel`, `try/throw`, plus `continue`/`break`
+- Core primitives (`core/object`, `core/array`, `core/string`, `core/json`) to avoid falling back to `tooling/script@1`
 
 ## Quick demo
 
@@ -78,11 +79,11 @@ Mappings are optional; unresolved components emit warnings while still producing
 The spec repository now stores reusable fixtures under `tests/spec`. To execute them against the Node kernel:
 
 ```bash
-npm run test:spec   # uniquement les fixtures partagées
-npm run test:all    # tests internes + fixtures spec
+SPEC_REPO_PATH=/path/to/lcod-spec LCOD_SPEC_PATH=/path/to/lcod-spec npm run test:spec   # shared fixtures only
+SPEC_REPO_PATH=/path/to/lcod-spec LCOD_SPEC_PATH=/path/to/lcod-spec npm run test:all    # internal tests + fixtures
 ```
 
-Set `SPEC_REPO_PATH=/path/to/lcod-spec` to override the auto-detected location. The same fixtures are consumed by the Rust kernel via `cargo run --bin test_specs`, keeping runtime behaviour aligned across substrates.
+Set `SPEC_REPO_PATH` (and `LCOD_SPEC_PATH` when running in CI) if the spec repository is not cloned next to the kernel. The same fixtures are consumed by the Rust kernel via `cargo run --bin test_specs`, keeping runtime behaviour aligned across substrates.
 
 ## Publish core Node axioms
 

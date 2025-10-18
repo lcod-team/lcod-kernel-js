@@ -23,6 +23,164 @@ function cloneContainer(value) {
   return value;
 }
 
+function normalizeArrayStrategy(strategy) {
+  return strategy === 'concat' ? 'concat' : 'replace';
+}
+
+function mergePlainObjects(left = {}, right = {}, options = {}) {
+  const deep = options.deep === true;
+  const arrayStrategy = normalizeArrayStrategy(options.arrayStrategy);
+  const base = isPlainObject(left) ? left : {};
+  const overlay = isPlainObject(right) ? right : {};
+  const result = { ...base };
+  const conflicts = new Set();
+
+  for (const key of Object.keys(overlay)) {
+    conflicts.add(key);
+    const rightValue = overlay[key];
+    const leftValue = base[key];
+    if (deep && isPlainObject(leftValue) && isPlainObject(rightValue)) {
+      result[key] = mergePlainObjects(leftValue, rightValue, { deep, arrayStrategy }).value;
+      continue;
+    }
+    if (deep && Array.isArray(leftValue) && Array.isArray(rightValue)) {
+      if (arrayStrategy === 'concat') {
+        result[key] = leftValue.concat(rightValue);
+      } else {
+        result[key] = rightValue.slice();
+      }
+      continue;
+    }
+    result[key] = cloneContainer(rightValue);
+  }
+
+  return {
+    value: result,
+    conflicts: Array.from(conflicts).sort()
+  };
+}
+
+function sortKeysDeep(value) {
+  if (Array.isArray(value)) {
+    return value.map(item => sortKeysDeep(item));
+  }
+  if (isPlainObject(value)) {
+    const sorted = {};
+    for (const key of Object.keys(value).sort()) {
+      sorted[key] = sortKeysDeep(value[key]);
+    }
+    return sorted;
+  }
+  return value;
+}
+
+function escapeNonAscii(text) {
+  return text.replace(/[\u007F-\uFFFF]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
+}
+
+function parsePlaceholderSegments(expression) {
+  const segments = [];
+  let buffer = '';
+  for (let i = 0; i < expression.length; i += 1) {
+    const ch = expression[i];
+    if (ch === '.') {
+      if (buffer) {
+        segments.push(buffer);
+        buffer = '';
+      }
+      continue;
+    }
+    if (ch === '[') {
+      if (buffer) {
+        segments.push(buffer);
+        buffer = '';
+      }
+      const close = expression.indexOf(']', i + 1);
+      if (close === -1) throw new Error(`Unmatched '[' in placeholder: ${expression}`);
+      const token = expression.slice(i + 1, close).trim();
+      if (!token) throw new Error(`Empty index in placeholder: ${expression}`);
+      const numeric = Number.parseInt(token, 10);
+      segments.push(Number.isNaN(numeric) ? token : numeric);
+      i = close;
+      continue;
+    }
+    buffer += ch;
+  }
+  if (buffer) segments.push(buffer);
+  return segments;
+}
+
+function resolvePlaceholder(values, token) {
+  try {
+    const segments = parsePlaceholderSegments(token);
+    return resolveObjectPath(values, segments);
+  } catch (err) {
+    return { value: undefined, found: false };
+  }
+}
+
+function formatTemplateString(template, values, options = {}) {
+  const fallback = Object.prototype.hasOwnProperty.call(options, 'fallback')
+    ? String(options.fallback ?? '')
+    : '';
+  const missingPolicy = options.missingPolicy === 'error' ? 'error' : 'ignore';
+  const missing = [];
+  let result = '';
+
+  for (let i = 0; i < template.length; i += 1) {
+    const char = template[i];
+    if (char === '{') {
+      if (template[i + 1] === '{') {
+        result += '{';
+        i += 1;
+        continue;
+      }
+      const close = template.indexOf('}', i + 1);
+      if (close === -1) {
+        result += template.slice(i);
+        break;
+      }
+      const token = template.slice(i + 1, close).trim();
+      if (!token) {
+        missing.push('');
+        result += fallback;
+        i = close;
+        continue;
+      }
+      const lookup = resolvePlaceholder(values, token);
+      if (lookup.found) {
+        const value = lookup.value;
+        result += value == null ? '' : String(value);
+      } else {
+        missing.push(token);
+        result += fallback;
+      }
+      i = close;
+      continue;
+    }
+    if (char === '}' && template[i + 1] === '}') {
+      result += '}';
+      i += 1;
+      continue;
+    }
+    result += char;
+  }
+
+  const output = { value: result };
+  if (missing.length && missingPolicy === 'ignore') {
+    output.missing = missing;
+  }
+  if (missing.length && missingPolicy === 'error') {
+    output.error = {
+      code: 'MISSING_PLACEHOLDER',
+      message: `Missing placeholders: ${missing.join(', ')}`,
+      missingKeys: missing
+    };
+  }
+  return output;
+}
+
+
 function normalizePathSegment(segment) {
   if (typeof segment === 'number' && Number.isInteger(segment)) return segment;
   if (typeof segment === 'string' && segment.length > 0) return segment;
@@ -424,6 +582,18 @@ export function registerNodeCore(reg) {
     return { items: target, length: target.length };
   });
 
+  reg.register('lcod://contract/core/array/append@1', async (_ctx, input = {}) => {
+    if (!Array.isArray(input.array)) throw new Error('array must be an array');
+    const base = input.array.slice();
+    if (Array.isArray(input.items)) {
+      base.push(...input.items);
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'item')) {
+      base.push(input.item);
+    }
+    return { value: base, length: base.length };
+  });
+
   reg.register('lcod://contract/core/object/get@1', async (_ctx, input = {}) => {
     const { object, path: segments, default: defaultValue } = input;
     if (!isPlainObject(object) && !Array.isArray(object)) {
@@ -493,6 +663,66 @@ export function registerNodeCore(reg) {
     }
 
     return { object: targetRoot, created: !found };
+  });
+
+  reg.register('lcod://contract/core/object/merge@1', async (_ctx, input = {}) => {
+    const left = isPlainObject(input.left) ? input.left : {};
+    const right = isPlainObject(input.right) ? input.right : {};
+    const deep = input.deep === true;
+    const arrayStrategy = input.arrayStrategy;
+    const { value, conflicts } = mergePlainObjects(left, right, { deep, arrayStrategy });
+    const response = { value };
+    if (conflicts.length) response.conflicts = conflicts;
+    return response;
+  });
+
+  reg.register('lcod://contract/core/string/format@1', async (_ctx, input = {}) => {
+    const template = typeof input.template === 'string' ? input.template : '';
+    const values = isPlainObject(input.values) ? input.values : (input.values ?? {});
+    const formatted = formatTemplateString(template, values, {
+      fallback: Object.prototype.hasOwnProperty.call(input, 'fallback') ? input.fallback : undefined,
+      missingPolicy: input.missingPolicy
+    });
+    return formatted;
+  });
+
+  reg.register('lcod://contract/core/json/encode@1', async (_ctx, input = {}) => {
+    const sortKeys = input.sortKeys === true;
+    const asciiOnly = input.asciiOnly === true;
+    const space = typeof input.space === 'number' ? Math.min(Math.max(input.space, 0), 10) : 0;
+    try {
+      const value = sortKeys ? sortKeysDeep(input.value) : input.value;
+      let text = JSON.stringify(value, null, space);
+      if (asciiOnly && typeof text === 'string') {
+        text = escapeNonAscii(text);
+      }
+      return { text, bytes: Buffer.byteLength(text, 'utf8') };
+    } catch (err) {
+      return {
+        error: {
+          code: 'UNSERIALISABLE',
+          message: err?.message || 'Unable to encode value'
+        }
+      };
+    }
+  });
+
+  reg.register('lcod://contract/core/json/decode@1', async (_ctx, input = {}) => {
+    if (typeof input.text !== 'string') throw new Error('text must be a string');
+    const text = input.text;
+    try {
+      const value = JSON.parse(text);
+      return { value, bytes: Buffer.byteLength(text, 'utf8') };
+    } catch (err) {
+      const match = /position (\d+)/i.exec(err.message || '');
+      return {
+        error: {
+          code: 'JSON_PARSE',
+          message: err.message || 'Invalid JSON',
+          offset: match ? Number.parseInt(match[1], 10) : undefined
+        }
+      };
+    }
   });
 
   return reg;
@@ -575,8 +805,13 @@ export function registerNodeResolverAxioms(reg) {
   aliasContract('lcod://contract/core/git/clone@1', 'lcod://axiom/git/clone@1');
   aliasContract('lcod://contract/core/array/length@1', 'lcod://axiom/array/length@1');
   aliasContract('lcod://contract/core/array/push@1', 'lcod://axiom/array/push@1');
+  aliasContract('lcod://contract/core/array/append@1', 'lcod://axiom/array/append@1');
   aliasContract('lcod://contract/core/object/get@1', 'lcod://axiom/object/get@1');
   aliasContract('lcod://contract/core/object/set@1', 'lcod://axiom/object/set@1');
+  aliasContract('lcod://contract/core/object/merge@1', 'lcod://axiom/object/merge@1');
+  aliasContract('lcod://contract/core/string/format@1', 'lcod://axiom/string/format@1');
+  aliasContract('lcod://contract/core/json/encode@1', 'lcod://axiom/json/encode@1');
+  aliasContract('lcod://contract/core/json/decode@1', 'lcod://axiom/json/decode@1');
 
   reg.register('lcod://contract/tooling/resolve-dependency@1', async (_ctx, input = {}) => {
     const dependency = typeof input.dependency === 'string' && input.dependency

@@ -41,3 +41,7 @@ Next:
 - [ ] Explore `--build` targets (GraalVM/Node pkg) and record limitations.
 - [x] Support loading resolver/spec helpers from the shared runtime bundle (`LCOD_HOME`) with checksum verification.
 - [x] Provide a fallback/dev mode that auto-clones `lcod-spec`/`lcod-resolver` but warns when the bundle is absent in production runs.
+
+## M8 — Standard library primitives
+- [x] M8-02 Implement core primitives (`object/merge`, `array/append`, `string/format`, `json/encode`, `json/decode`) and expose them via `registerNodeCore` (refs #22).
+- [ ] Wire the `std_primitives` fixture into CI once resolver CLI tests are green again.
