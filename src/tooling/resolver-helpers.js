@@ -41,19 +41,43 @@ function buildHelperDefinitions() {
 
 function gatherResolverCandidates() {
   const out = [];
+  const seen = new Set();
+  const push = (entry) => {
+    if (!entry || !entry.path) return;
+    const key = `${entry.type}:${entry.path}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(entry);
+  };
   const runtimeResolverRoot = getRuntimeResolverRoot();
   if (runtimeResolverRoot) {
-    out.push({ type: 'root', path: runtimeResolverRoot });
+    push({ type: 'root', path: runtimeResolverRoot });
   }
   if (process.env.LCOD_RESOLVER_COMPONENTS_PATH) {
-    out.push({ type: 'components', path: path.resolve(process.env.LCOD_RESOLVER_COMPONENTS_PATH) });
+    push({ type: 'components', path: path.resolve(process.env.LCOD_RESOLVER_COMPONENTS_PATH) });
   }
   if (process.env.LCOD_RESOLVER_PATH) {
-    out.push({ type: 'root', path: path.resolve(process.env.LCOD_RESOLVER_PATH) });
+    push({ type: 'root', path: path.resolve(process.env.LCOD_RESOLVER_PATH) });
   }
-  out.push({ type: 'root', path: path.resolve(repoRoot, '..', 'lcod-resolver') });
-  out.push({ type: 'legacy', path: path.resolve(repoRoot, '..', 'lcod-spec', 'tooling', 'resolver') });
-  out.push({ type: 'legacy', path: path.resolve(repoRoot, '..', 'lcod-spec', 'tooling', 'registry') });
+  if (process.env.LCOD_COMPONENTS_PATH) {
+    const base = path.resolve(process.env.LCOD_COMPONENTS_PATH);
+    push({ type: 'components', path: base });
+    push({
+      type: 'components',
+      path: path.join(base, 'packages', 'std', 'components')
+    });
+  }
+  const specToolingRoot = path.resolve(repoRoot, '..', 'lcod-spec', 'tooling');
+  push({ type: 'legacy', path: path.join(specToolingRoot, 'resolver') });
+  push({ type: 'legacy', path: path.join(specToolingRoot, 'registry') });
+  push({ type: 'legacy', path: specToolingRoot });
+  push({ type: 'root', path: path.resolve(repoRoot, '..', 'lcod-resolver') });
+  const localComponentsRoot = path.resolve(repoRoot, '..', 'lcod-components');
+  push({ type: 'components', path: localComponentsRoot });
+  push({
+    type: 'components',
+    path: path.join(localComponentsRoot, 'packages', 'std', 'components')
+  });
   return out;
 }
 
@@ -177,43 +201,46 @@ function buildPathFromFields(manifest) {
 }
 
 function loadLegacyComponentDefinitions(componentsDir) {
-  if (!componentsDir || !fs.existsSync(componentsDir)) return [];
-  const entries = fs.readdirSync(componentsDir, { withFileTypes: true });
   const defs = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const componentDir = path.join(componentsDir, entry.name);
-    const composePath = path.join(componentDir, 'compose.yaml');
-    if (!fs.existsSync(composePath)) continue;
-    const manifestPath = path.join(componentDir, 'lcp.toml');
-    let componentId;
-    if (fs.existsSync(manifestPath)) {
-      try {
-        const manifest = parseToml(fs.readFileSync(manifestPath, 'utf8'));
-        componentId = manifest?.id;
-      } catch (err) {
-        void logKernelWarn(null, 'Failed to parse legacy component manifest', {
-          data: { manifestPath, error: err?.message },
-          tags: { module: 'resolver-helpers' }
+  const visit = (currentDir) => {
+    if (!currentDir || !fs.existsSync(currentDir)) return;
+    const composePath = path.join(currentDir, 'compose.yaml');
+    if (fs.existsSync(composePath)) {
+      const manifestPath = path.join(currentDir, 'lcp.toml');
+      let componentId;
+      if (fs.existsSync(manifestPath)) {
+        try {
+          const manifest = parseToml(fs.readFileSync(manifestPath, 'utf8'));
+          componentId = manifest?.id;
+        } catch (err) {
+          void logKernelWarn(null, 'Failed to parse legacy component manifest', {
+            data: { manifestPath, error: err?.message },
+            tags: { module: 'resolver-helpers' }
+          });
+        }
+      }
+      if (componentId && typeof componentId === 'string') {
+        defs.push({
+          id: componentId,
+          composePath,
+          context: {
+            basePath: extractPath(componentId)?.split('/').slice(0, -1).join('/') || null,
+            version: extractVersion(componentId),
+            aliasMap: {}
+          },
+          cacheKey: `${componentId}::${composePath}`,
+          aliases: []
         });
       }
+      return;
     }
-    if (!componentId || typeof componentId !== 'string') {
-      // Skip components without an explicit ID — cannot register reliably
-      continue;
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      visit(path.join(currentDir, entry.name));
     }
-    defs.push({
-      id: componentId,
-      composePath,
-      context: {
-        basePath: extractPath(componentId)?.split('/').slice(0, -1).join('/') || null,
-        version: extractVersion(componentId),
-        aliasMap: {}
-      },
-      cacheKey: `${componentId}::${composePath}`,
-      aliases: []
-    });
-  }
+  };
+  visit(componentsDir);
   return defs;
 }
 
@@ -328,17 +355,55 @@ function ensureFallbackHelperDefinitions(collected) {
       });
     };
 
-    ensureHelper(
-      'lcod://tooling/registry/catalog/generate@0.1.0',
-      ['tooling', 'registry', 'catalog', 'compose.yaml'],
-      'tooling/registry/catalog'
-    );
+    const entries = [
+      ['lcod://tooling/value/default_object@0.1.0', ['tooling', 'value', 'default_object', 'compose.yaml'], 'tooling/value/default_object'],
+      ['lcod://tooling/value/default_array@0.1.0', ['tooling', 'value', 'default_array', 'compose.yaml'], 'tooling/value/default_array'],
+      ['lcod://tooling/value/is_object@0.1.0', ['tooling', 'value', 'is_object', 'compose.yaml'], 'tooling/value/is_object'],
+      ['lcod://tooling/value/is_array@0.1.0', ['tooling', 'value', 'is_array', 'compose.yaml'], 'tooling/value/is_array'],
+      ['lcod://tooling/value/is_string_nonempty@0.1.0', ['tooling', 'value', 'is_string_nonempty', 'compose.yaml'], 'tooling/value/is_string_nonempty'],
+      ['lcod://tooling/array/append@0.1.0', ['tooling', 'array', 'append', 'compose.yaml'], 'tooling/array/append'],
+      ['lcod://tooling/array/compact@0.1.0', ['tooling', 'array', 'compact', 'compose.yaml'], 'tooling/array/compact'],
+      ['lcod://tooling/array/concat@0.1.0', ['tooling', 'array', 'concat', 'compose.yaml'], 'tooling/array/concat'],
+      ['lcod://tooling/array/filter_objects@0.1.0', ['tooling', 'array', 'filter_objects', 'compose.yaml'], 'tooling/array/filter_objects'],
+      ['lcod://tooling/array/length@0.1.0', ['tooling', 'array', 'length', 'compose.yaml'], 'tooling/array/length'],
+      ['lcod://tooling/array/shift@0.1.0', ['tooling', 'array', 'shift', 'compose.yaml'], 'tooling/array/shift'],
+      ['lcod://tooling/fs/read_optional@0.1.0', ['tooling', 'fs', 'read_optional', 'compose.yaml'], 'tooling/fs/read_optional'],
+      ['lcod://tooling/json/decode_object@0.1.0', ['tooling', 'json', 'decode_object', 'compose.yaml'], 'tooling/json/decode_object'],
+      ['lcod://tooling/hash/sha256_base64@0.1.0', ['tooling', 'hash', 'sha256_base64', 'compose.yaml'], 'tooling/hash/sha256_base64'],
+      ['lcod://tooling/path/join_chain@0.1.0', ['tooling', 'path', 'join_chain', 'compose.yaml'], 'tooling/path/join_chain'],
+      ['lcod://tooling/path/dirname@0.1.0', ['tooling', 'path', 'dirname', 'compose.yaml'], 'tooling/path/dirname'],
+      ['lcod://tooling/path/is_absolute@0.1.0', ['tooling', 'path', 'is_absolute', 'compose.yaml'], 'tooling/path/is_absolute'],
+      ['lcod://tooling/path/to_file_url@0.1.0', ['tooling', 'path', 'to_file_url', 'compose.yaml'], 'tooling/path/to_file_url'],
+      ['lcod://core/array/append@0.1.0', ['core', 'array', 'append', 'compose.yaml'], 'core/array/append'],
+      ['lcod://core/json/decode@0.1.0', ['core', 'json', 'decode', 'compose.yaml'], 'core/json/decode'],
+      ['lcod://core/json/encode@0.1.0', ['core', 'json', 'encode', 'compose.yaml'], 'core/json/encode'],
+      ['lcod://core/object/merge@0.1.0', ['core', 'object', 'merge', 'compose.yaml'], 'core/object/merge'],
+      ['lcod://core/string/format@0.1.0', ['core', 'string', 'format', 'compose.yaml'], 'core/string/format'],
+      ['lcod://tooling/registry/source/load@0.1.0', ['tooling', 'registry', 'source', 'compose.yaml'], 'tooling/registry/source'],
+      ['lcod://tooling/registry/index@0.1.0', ['tooling', 'registry', 'index', 'compose.yaml'], 'tooling/registry/index'],
+      ['lcod://tooling/registry/select@0.1.0', ['tooling', 'registry', 'select', 'compose.yaml'], 'tooling/registry/select'],
+      ['lcod://tooling/registry/resolution@0.1.0', ['tooling', 'registry', 'resolution', 'compose.yaml'], 'tooling/registry/resolution'],
+      ['lcod://tooling/registry/catalog/generate@0.1.0', ['tooling', 'registry', 'catalog', 'compose.yaml'], 'tooling/registry/catalog'],
+      ['lcod://tooling/registry_sources/build_inline_entry@0.1.0', ['tooling', 'registry_sources', 'build_inline_entry', 'compose.yaml'], 'tooling/registry_sources/build_inline_entry'],
+      ['lcod://tooling/registry_sources/collect_entries@0.1.0', ['tooling', 'registry_sources', 'collect_entries', 'compose.yaml'], 'tooling/registry_sources/collect_entries'],
+      ['lcod://tooling/registry_sources/collect_queue@0.1.0', ['tooling', 'registry_sources', 'collect_queue', 'compose.yaml'], 'tooling/registry_sources/collect_queue'],
+      ['lcod://tooling/registry_sources/load_config@0.1.0', ['tooling', 'registry_sources', 'load_config', 'compose.yaml'], 'tooling/registry_sources/load_config'],
+      ['lcod://tooling/registry_sources/merge_inline_entries@0.1.0', ['tooling', 'registry_sources', 'merge_inline_entries', 'compose.yaml'], 'tooling/registry_sources/merge_inline_entries'],
+      ['lcod://tooling/registry_sources/normalize_pointer@0.1.0', ['tooling', 'registry_sources', 'normalize_pointer', 'compose.yaml'], 'tooling/registry_sources/normalize_pointer'],
+      ['lcod://tooling/registry_sources/partition_normalized@0.1.0', ['tooling', 'registry_sources', 'partition_normalized', 'compose.yaml'], 'tooling/registry_sources/partition_normalized'],
+      ['lcod://tooling/registry_sources/prepare_env@0.1.0', ['tooling', 'registry_sources', 'prepare_env', 'compose.yaml'], 'tooling/registry_sources/prepare_env'],
+      ['lcod://tooling/registry_sources/process_catalogue@0.1.0', ['tooling', 'registry_sources', 'process_catalogue', 'compose.yaml'], 'tooling/registry_sources/process_catalogue'],
+      ['lcod://tooling/registry_sources/process_pointer@0.1.0', ['tooling', 'registry_sources', 'process_pointer', 'compose.yaml'], 'tooling/registry_sources/process_pointer'],
+      ['lcod://tooling/registry_sources/resolve@0.1.0', ['tooling', 'registry_sources', 'resolve', 'compose.yaml'], 'tooling/registry_sources/resolve'],
+      ['lcod://tooling/resolver/context/prepare@0.1.0', ['tooling', 'resolver', 'context', 'compose.yaml'], 'tooling/resolver/context'],
+      ['lcod://tooling/resolver/replace/apply@0.1.0', ['tooling', 'resolver', 'replace', 'compose.yaml'], 'tooling/resolver/replace'],
+      ['lcod://tooling/resolver/warnings/merge@0.1.0', ['tooling', 'resolver', 'warnings', 'compose.yaml'], 'tooling/resolver/warnings'],
+      ['lcod://tooling/resolver/register_components@0.1.0', ['tooling', 'resolver', 'register_components', 'compose.yaml'], 'tooling/resolver/register_components'],
+    ];
 
-    ensureHelper(
-      'lcod://tooling/resolver/register_components@0.1.0',
-      ['tooling', 'resolver', 'register_components', 'compose.yaml'],
-      'tooling/resolver/register_components'
-    );
+    for (const [id, relPath, basePath] of entries) {
+      ensureHelper(id, relPath, basePath);
+    }
   }
 }
 
@@ -407,6 +472,31 @@ function ensureResolverAxiomFallbacks(registry) {
     registry.register('lcod://axiom/toml/stringify@1', async (_ctx, input = {}) => {
       const value = input.value ?? {};
       return { text: stringifyToml(value) };
+    });
+  }
+
+  if (!registry.get('lcod://tooling/fs/read_optional@0.1.0')) {
+    registry.register('lcod://tooling/fs/read_optional@0.1.0', async (_ctx, input = {}) => {
+      const targetPath = typeof input.path === 'string' && input.path.length > 0 ? input.path : null;
+      const encoding = typeof input.encoding === 'string' && input.encoding.length > 0
+        ? input.encoding
+        : 'utf-8';
+      const fallback = typeof input.fallback === 'string' ? input.fallback : '';
+      const warningTemplate = typeof input.warningMessage === 'string' && input.warningMessage.length > 0
+        ? input.warningMessage
+        : null;
+
+      if (!targetPath) {
+        return { text: fallback, exists: false, warning: warningTemplate };
+      }
+
+      try {
+        const content = await fsp.readFile(targetPath, { encoding });
+        return { text: content, exists: true, warning: null };
+      } catch (err) {
+        const message = warningTemplate || err?.message || `Failed to read ${targetPath}`;
+        return { text: fallback, exists: false, warning: message };
+      }
     });
   }
 }
