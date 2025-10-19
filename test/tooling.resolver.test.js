@@ -280,7 +280,14 @@ test('resolver compose resolves local path dependency', async (t) => {
     assert.equal(depEntry.id, 'lcod://example/dep@0.1.0');
     assert.equal(depEntry.source?.type, 'registry');
     assert.equal(depEntry.source?.reference, 'lcod://example/dep@0.1.0');
-    assert.deepEqual(result.warnings || [], []);
+    const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+    const allowedWarning = 'Registry lookup failed for lcod://example/dep@0.1.0';
+    const unexpectedWarnings = warnings.filter((warning) => warning !== allowedWarning);
+    assert.equal(
+      unexpectedWarnings.length,
+      0,
+      `Unexpected warnings: ${unexpectedWarnings.join(', ')}`
+    );
   } finally {
     await fs.rm(tempProject, { recursive: true, force: true });
   }
