@@ -29,6 +29,14 @@ test('LCOD runtime bundle supports catalog generation', async (t) => {
     t.skip('lcod-resolver repository not available');
     return;
   }
+  const componentsRoot = await locateRepo(
+    process.env.LCOD_COMPONENTS_PATH,
+    '../lcod-components'
+  ).catch(() => null);
+  if (!componentsRoot) {
+    t.skip('lcod-components repository not available');
+    return;
+  }
 
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-runtime-js-'));
   const runtimeRoot = path.join(tempRoot, 'lcod-runtime-test');
@@ -50,9 +58,61 @@ test('LCOD runtime bundle supports catalog generation', async (t) => {
     path.join(resolverRoot, 'workspace.lcp.toml'),
     path.join(runtimeRoot, 'resolver', 'workspace.lcp.toml')
   );
+  const componentsTempRoot = path.join(tempRoot, 'lcod-components');
+  await fs.mkdir(componentsTempRoot, { recursive: true });
+  await copyDir(
+    path.join(componentsRoot, 'packages'),
+    path.join(componentsTempRoot, 'packages')
+  );
+  await copyDir(
+    path.join(componentsRoot, 'registry'),
+    path.join(componentsTempRoot, 'registry')
+  );
+  const componentsWorkspace = path.join(componentsRoot, 'workspace.lcp.toml');
+  if (fssync.existsSync(componentsWorkspace)) {
+    await fs.copyFile(
+      componentsWorkspace,
+      path.join(componentsTempRoot, 'workspace.lcp.toml')
+    );
+  }
+  const componentsPackageJson = path.join(componentsRoot, 'package.json');
+  if (fssync.existsSync(componentsPackageJson)) {
+    await fs.copyFile(
+      componentsPackageJson,
+      path.join(componentsTempRoot, 'package.json')
+    );
+  }
+  const requiredComponent = path.join(
+    componentsTempRoot,
+    'packages',
+    'std',
+    'components',
+    'tooling',
+    'array.append',
+    'compose.yaml'
+  );
+  if (!fssync.existsSync(requiredComponent)) {
+    throw new Error(`Failed to stage lcod-components (missing ${requiredComponent})`);
+  }
+  const requiredCore = path.join(
+    componentsTempRoot,
+    'packages',
+    'std',
+    'components',
+    'core',
+    'json.encode',
+    'compose.yaml'
+  );
+  if (!fssync.existsSync(requiredCore)) {
+    throw new Error(`Failed to stage lcod-components core helpers (missing ${requiredCore})`);
+  }
   await copyDir(
     path.join(resolverRoot, 'packages', 'resolver'),
     path.join(runtimeRoot, 'resolver', 'packages', 'resolver')
+  );
+  await copyDir(
+    path.join(resolverRoot, 'packages', 'resolver'),
+    path.join(runtimeRoot, 'packages', 'resolver')
   );
 
   await fs.mkdir(path.join(runtimeRoot, 'metadata'), { recursive: true });
@@ -166,7 +226,9 @@ test('LCOD runtime bundle supports catalog generation', async (t) => {
   } finally {
     restoreEnv(previousEnv);
     refreshResolverHelperCache();
-    await fs.rm(tempRoot, { recursive: true, force: true });
+    if (!process.env.KEEP_RUNTIME_BUNDLE) {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   }
 });
 

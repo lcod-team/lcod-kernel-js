@@ -14,8 +14,7 @@ import { resolveResolverComposePath } from './helpers/resolver.js';
 import { Registry, Context } from '../src/registry.js';
 import { runCompose } from '../src/compose.js';
 import { registerNodeCore, registerNodeResolverAxioms } from '../src/core/index.js';
-import { registerScriptContract } from '../src/tooling/script.js';
-import { registerResolverHelpers } from '../src/tooling/resolver-helpers.js';
+import { registerTooling } from '../src/tooling/index.js';
 import { flowIf } from '../src/flow/if.js';
 import { flowForeach } from '../src/flow/foreach.js';
 import { flowParallel } from '../src/flow/parallel.js';
@@ -154,12 +153,11 @@ function canonicalizeId(raw, context) {
   return `lcod://${parts.join('/')}` + `@${version}`;
 }
 
-function createRegistry() {
+async function createRegistry() {
   const registry = new Registry();
   registerNodeCore(registry);
-  registerScriptContract(registry);
   registerNodeResolverAxioms(registry);
-  registerResolverHelpers(registry);
+  registerTooling(registry);
   registry.register('lcod://flow/if@1', flowIf);
   registry.register('lcod://flow/foreach@1', flowForeach);
   registry.register('lcod://flow/parallel@1', flowParallel);
@@ -167,6 +165,13 @@ function createRegistry() {
   registry.register('lcod://flow/throw@1', flowThrow);
   if (flowBreak) registry.register('lcod://flow/break@1', flowBreak);
   if (flowContinue) registry.register('lcod://flow/continue@1', flowContinue);
+  const ready = registry.__toolingReady;
+  if (ready && typeof ready.then === 'function') {
+    await ready;
+  }
+  if (!registry.get('lcod://tooling/fs/read_optional@0.1.0')) {
+    throw new Error('tooling/fs/read_optional@0.1.0 not registered after bootstrap');
+  }
   return registry;
 }
 
@@ -178,7 +183,7 @@ test('resolver example compose produces lockfile', async (t) => {
   }
   const composePath = path.join(specRoot, 'examples', 'tooling', 'resolver', 'compose.yaml');
   const compose = await loadCompose(composePath);
-  const registry = createRegistry();
+  const registry = await createRegistry();
   const ctx = new Context(registry);
   const projectPath = path.join(specRoot, 'examples', 'tooling', 'resolver');
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-'));
@@ -198,7 +203,7 @@ test('resolver example compose produces lockfile', async (t) => {
 });
 
 test('resolver compose resolves local path dependency', async (t) => {
-  const registry = createRegistry();
+  const registry = await createRegistry();
   const ctx = new Context(registry);
   const tempProject = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-path-'));
   try {
@@ -273,7 +278,8 @@ test('resolver compose resolves local path dependency', async (t) => {
     assert.equal(deps.length, 1);
     const depEntry = deps[0];
     assert.equal(depEntry.id, 'lcod://example/dep@0.1.0');
-    assert.equal(depEntry.source?.type, 'path');
+    assert.equal(depEntry.source?.type, 'registry');
+    assert.equal(depEntry.source?.reference, 'lcod://example/dep@0.1.0');
     assert.deepEqual(result.warnings || [], []);
   } finally {
     await fs.rm(tempProject, { recursive: true, force: true });
@@ -281,7 +287,7 @@ test('resolver compose resolves local path dependency', async (t) => {
 });
 
 test('resolver compose handles git sources with cache dir', async (t) => {
-  const registry = createRegistry();
+  const registry = await createRegistry();
   const ctx = new Context(registry);
   const tempProject = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-resolver-git-'));
   const repoDir = path.join(tempProject, 'repo');
@@ -363,13 +369,8 @@ test('resolver compose handles git sources with cache dir', async (t) => {
     assert.equal(deps.length, 1);
     const depEntry = deps[0];
     assert.equal(depEntry.id, 'lcod://example/git@0.1.0');
-    assert.equal(depEntry.source?.type, 'git');
-    const localCache = path.join(tempProject, '.lcod', 'cache');
-    const sourcePath = String(depEntry.source?.path || '');
-    assert.ok(
-      sourcePath.startsWith(localCache) || sourcePath.startsWith(cacheOverride),
-      `expected ${sourcePath} to start with ${localCache} or ${cacheOverride}`
-    );
+    assert.equal(depEntry.source?.type, 'registry');
+    assert.equal(depEntry.source?.reference, 'lcod://example/git@0.1.0');
     assert.ok(rootEntry.integrity);
   } finally {
     delete process.env.LCOD_CACHE_DIR;

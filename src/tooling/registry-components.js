@@ -23,9 +23,9 @@ function resolveSpecRoot() {
   };
 
   const candidates = [];
+  if (process.env.SPEC_REPO_PATH) candidates.push(path.resolve(process.env.SPEC_REPO_PATH));
   const runtimeRoot = getRuntimeRoot();
   if (runtimeRoot) candidates.push(runtimeRoot);
-  if (process.env.SPEC_REPO_PATH) candidates.push(path.resolve(process.env.SPEC_REPO_PATH));
   candidates.push(path.resolve(repoRoot, '..', 'lcod-spec'));
   candidates.push(path.resolve(process.cwd(), '../lcod-spec'));
   candidates.push(path.resolve(process.cwd(), '../../lcod-spec'));
