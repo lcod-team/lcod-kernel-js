@@ -23,6 +23,11 @@ jobs:
         with:
           repository: lcod-team/lcod-resolver
           path: lcod-resolver
+      - name: Checkout components
+        uses: actions/checkout@v4
+        with:
+          repository: lcod-team/lcod-components
+          path: lcod-components
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -34,8 +39,10 @@ jobs:
           SPEC_REPO_PATH: ${{ github.workspace }}/lcod-spec
           LCOD_RESOLVER_PATH: ${{ github.workspace }}/lcod-resolver
           LCOD_RESOLVER_COMPONENTS_PATH: ${{ github.workspace }}/lcod-resolver/packages/resolver/components
+          LCOD_COMPONENTS_PATH: ${{ github.workspace }}/lcod-components
         run: npm test
       - name: Run spec fixtures
         env:
           SPEC_REPO_PATH: ${{ github.workspace }}/lcod-spec
+          LCOD_COMPONENTS_PATH: ${{ github.workspace }}/lcod-components
         run: npm run test:spec
