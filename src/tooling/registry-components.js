@@ -85,7 +85,9 @@ export async function registerRegistryComponents(registry) {
   }
   componentsCandidates.push(path.resolve(specRoot, '..', 'lcod-components'));
   componentsCandidates.push(path.resolve(specRoot, '..', '..', 'lcod-components'));
-  const uniqueCandidates = [...new Set(componentsCandidates)];
+  const uniqueCandidates = [...new Set(
+    componentsCandidates.filter((candidate) => typeof candidate === 'string' && candidate.length > 0)
+  )];
 
   const steps = loadComposeFromPath(registerPath);
   const ctx = new Context(registry, { skipRegistryReady: true });
