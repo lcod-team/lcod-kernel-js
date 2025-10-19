@@ -245,6 +245,9 @@ async function main() {
     registerNodeResolverAxioms(reg);
   }
   registerTooling(reg);
+  if (reg.__toolingReady && typeof reg.__toolingReady.then === 'function') {
+    await reg.__toolingReady;
+  }
   if (args.modules) await loadModulesFromMap(reg, args.modules, { baseDir: process.cwd() });
   if (args.bind) {
     const bindingPath = path.resolve(process.cwd(), args.bind);
