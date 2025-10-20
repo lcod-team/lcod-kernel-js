@@ -14,6 +14,21 @@ export class Registry {
   get(name) { return this.funcs.get(name); }
 }
 
+export function createCancellationToken() {
+  const state = { cancelled: false };
+  return {
+    cancel() { state.cancelled = true; },
+    isCancelled() { return state.cancelled; }
+  };
+}
+
+export class ExecutionCancelledError extends Error {
+  constructor(message = 'Execution cancelled') {
+    super(message);
+    this.name = 'ExecutionCancelledError';
+  }
+}
+
 import { getValidator } from './validate.js';
 import { StreamManager } from './core/streams.js';
 
@@ -27,6 +42,21 @@ export class Context {
     this._scopeStack = [];
     this._registryScopeStack = [];
     this._skipRegistryReady = Boolean(options.skipRegistryReady);
+    this._cancellation = options.cancellation || createCancellationToken();
+  }
+  cancellationToken() { return this._cancellation; }
+  cancel() {
+    if (this._cancellation && typeof this._cancellation.cancel === 'function') {
+      this._cancellation.cancel();
+    }
+  }
+  isCancelled() {
+    return Boolean(this._cancellation && typeof this._cancellation.isCancelled === 'function' && this._cancellation.isCancelled());
+  }
+  ensureNotCancelled() {
+    if (this.isCancelled()) {
+      throw new ExecutionCancelledError();
+    }
   }
   defer(fn) {
     if (!this._scopeStack.length) this._scopeStack.push([]);
@@ -40,6 +70,7 @@ export class Context {
     }
   }
   async call(name, input, meta) {
+    this.ensureNotCancelled();
     const dataIn = input ?? {};
 
     const awaitRegistryReady = async () => {

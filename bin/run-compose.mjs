@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
 import TOML from '@iarna/toml';
-import { Registry, Context } from '../src/registry.js';
+import { Registry, Context, createCancellationToken, ExecutionCancelledError } from '../src/registry.js';
 import { runCompose } from '../src/compose.js';
 import { registerDemoAxioms } from '../src/axioms.js';
 import { flowIf } from '../src/flow/if.js';
@@ -32,7 +32,8 @@ function parseArgs(argv) {
     config: null,
     output: null,
     cacheDir: null,
-    sources: null
+    sources: null,
+    timeout: null
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -49,8 +50,24 @@ function parseArgs(argv) {
     else if (a === '--output') args.output = argv[++i];
     else if (a === '--cache-dir') args.cacheDir = argv[++i];
     else if (a === '--sources') args.sources = argv[++i];
+    else if (a === '--timeout') args.timeout = argv[++i];
   }
   return args;
+}
+
+function parseDuration(value) {
+  if (value == null) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  const match = trimmed.match(/^(\d+)(ms|s|m|h)$/i);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  const multipliers = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 };
+  return amount * (multipliers[unit] || 1);
 }
 
 function readJson(p) { return JSON.parse(fs.readFileSync(p, 'utf8')); }
@@ -207,6 +224,32 @@ async function stopHost(host) {
 
 async function main() {
   const args = parseArgs(process.argv);
+  const cancellation = createCancellationToken();
+  process.once('SIGINT', () => {
+    if (!cancellation.isCancelled()) {
+      console.error('Cancellation requested (Ctrl+C)');
+      cancellation.cancel();
+    }
+  });
+  process.once('SIGTERM', () => {
+    if (!cancellation.isCancelled()) {
+      console.error('Cancellation requested (SIGTERM)');
+      cancellation.cancel();
+    }
+  });
+  const timeoutMs = parseDuration(args.timeout);
+  if (Number.isFinite(timeoutMs) && timeoutMs != null) {
+    if (timeoutMs <= 0) {
+      cancellation.cancel();
+    } else {
+      setTimeout(() => {
+        if (!cancellation.isCancelled()) {
+          console.error(`Execution timed out after ${timeoutMs} ms`);
+          cancellation.cancel();
+        }
+      }, timeoutMs);
+    }
+  }
   if (args.resolver && !args.core) {
     args.core = true;
   }
@@ -254,7 +297,7 @@ async function main() {
     const bindings = JSON.parse(fs.readFileSync(bindingPath, 'utf8'));
     reg.setBindings(bindings);
   }
-  const ctx = new Context(reg);
+  const ctx = new Context(reg, { cancellation });
   let initial = args.state ? readJson(path.resolve(process.cwd(), args.state)) : {};
   if (args.resolver) {
     const state = { ...initial };
@@ -280,7 +323,16 @@ async function main() {
     }
     initial = state;
   }
-  const result = await runCompose(ctx, compose, initial);
+  let result;
+  try {
+    result = await runCompose(ctx, compose, initial);
+  } catch (err) {
+    if (err instanceof ExecutionCancelledError) {
+      console.error('Execution cancelled');
+      process.exit(130);
+    }
+    throw err;
+  }
   console.log(JSON.stringify(result, null, 2));
 
   const hosts = collectHttpHosts(result);

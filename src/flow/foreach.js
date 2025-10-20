@@ -35,6 +35,7 @@ export async function flowForeach(ctx, input, meta) {
     return { results };
   }
   for (let index = 0; index < list.length; index++) {
+    ctx.ensureNotCancelled();
     const item = list[index];
     try {
       const iterState = await ctx.runSlot('body', undefined, { item, index });

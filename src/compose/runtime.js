@@ -200,6 +200,7 @@ export async function runSteps(ctx, steps, state, slot) {
   let cur = { ...base };
   const list = Array.isArray(steps) ? steps : [];
   for (let index = 0; index < list.length; index += 1) {
+    ctx.ensureNotCancelled();
     const step = list[index];
     const children = Array.isArray(step.children)
       ? { children: step.children }
@@ -208,6 +209,7 @@ export async function runSteps(ctx, steps, state, slot) {
     const prevRunChildren = ctx.runChildren;
     const prevRunSlot = ctx.runSlot;
     ctx.runChildren = async (childrenArray, localState, slotVars) => {
+      ctx.ensureNotCancelled();
       const baseState = localState == null ? cur : localState;
       ctx._pushScope();
       try {
@@ -217,6 +219,7 @@ export async function runSteps(ctx, steps, state, slot) {
       }
     };
     ctx.runSlot = async (name, localState, slotVars) => {
+      ctx.ensureNotCancelled();
       const arr = (children && (children[name] || (name === 'children' ? children.children : null))) || [];
       const baseState = localState == null ? cur : localState;
       ctx._pushScope();
