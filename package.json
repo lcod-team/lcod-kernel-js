@@ -1,7 +1,7 @@
 {
   "name": "lcod-kernel-js",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.8",
   "type": "module",
   "scripts": {
     "demo": "node src/example.js",
@@ -14,7 +14,8 @@
     "build:core-axioms": "node scripts/build-core-package.mjs",
     "validate:lcp": "node scripts/validate-lcp.mjs",
     "resolve": "node scripts/resolve.mjs",
-    "compose:normalize": "node scripts/normalize-compose.mjs"
+    "compose:normalize": "node scripts/normalize-compose.mjs",
+    "bundle:runtime": "node scripts/package-runtime.mjs"
   },
   "dependencies": {
     "csv-parse": "^5.6.0",

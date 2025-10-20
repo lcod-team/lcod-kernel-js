@@ -32,6 +32,23 @@ node bin/run-compose.mjs --compose ../lcod-spec/examples/demo/my_weather/compose
 #                --cache-dir <dir>   set LCOD_CACHE_DIR before execution
 ```
 
+## Runtime bundle
+
+Releases embed the shared runtime bundle (spec helpers, resolver snapshot) so
+`bin/run-compose.mjs --resolver` works without cloning extra repositories. The
+bundle is generated from `lcod-spec` via:
+
+```bash
+# Ensure lcod-spec and lcod-resolver are cloned next to this repo
+# (the script will call node scripts/export-runtime.mjs in lcod-resolver)
+npm run bundle:runtime -- --label dev
+# -> dist/runtime/lcod-runtime-dev.tar.gz
+```
+
+Passing the resulting archive path to release tooling (or setting
+`LCOD_HOME` when running locally) guarantees files such as
+`lcod://tooling/fs/read_optional@0.1.0` are available at runtime.
+
 ## Validate a component package
 
 Use the strict validator (Ajv 2020 + @iarna/toml) to lint an LCP package before running it:
