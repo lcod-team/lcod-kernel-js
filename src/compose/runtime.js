@@ -1,3 +1,5 @@
+import { logKernelError, logKernelInfo } from '../tooling/logging.js';
+
 const SPREAD_KEY = '__lcod_spreads__';
 const OPTIONAL_FLAG = '__lcod_optional__';
 
@@ -104,10 +106,101 @@ function buildInput(bindings, state, slot) {
   return out;
 }
 
+function composeStepTags(step) {
+  const tags = { logger: 'kernel.compose.step' };
+  if (step && typeof step.call === 'string' && step.call.length > 0) {
+    tags.componentId = step.call;
+  }
+  return tags;
+}
+
+function cleanPayload(payload) {
+  if (!payload || typeof payload !== 'object') return {};
+  const out = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+function nonEmptyKeys(candidate) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return undefined;
+  const keys = Object.keys(candidate);
+  return keys.length > 0 ? keys : undefined;
+}
+
+function stepHasChildren(step) {
+  if (!step || !step.children) return false;
+  if (Array.isArray(step.children)) {
+    return step.children.length > 0;
+  }
+  if (typeof step.children === 'object') {
+    return Object.values(step.children).some(value => Array.isArray(value) && value.length > 0);
+  }
+  return false;
+}
+
+function buildStartData(index, step, inputKeys, slotKeys, hasChildren) {
+  return cleanPayload({
+    phase: 'start',
+    stepIndex: index,
+    collectPath: step?.collectPath,
+    inputKeys,
+    slotKeys,
+    hasChildren: hasChildren ? true : undefined
+  });
+}
+
+function describeResultType(result) {
+  if (result === null || result === undefined) return 'null';
+  if (Array.isArray(result)) return 'array';
+  const type = typeof result;
+  if (type === 'object') return 'object';
+  if (type === 'string') return 'string';
+  if (type === 'number') return 'number';
+  if (type === 'boolean') return 'boolean';
+  return type;
+}
+
+function buildSuccessData(index, durationMs, result) {
+  const payload = {
+    phase: 'success',
+    stepIndex: index,
+    durationMs,
+    resultType: describeResultType(result)
+  };
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    const keys = Object.keys(result);
+    if (keys.length > 0) {
+      payload.resultKeys = keys;
+    }
+  } else if (Array.isArray(result)) {
+    payload.resultLength = result.length;
+  }
+  return cleanPayload(payload);
+}
+
+function buildErrorData(index, durationMs, error) {
+  const errorInfo = cleanPayload({
+    message: error?.message ?? String(error),
+    type: error?.name
+  });
+  return cleanPayload({
+    phase: 'error',
+    stepIndex: index,
+    durationMs,
+    error: errorInfo
+  });
+}
+
 export async function runSteps(ctx, steps, state, slot) {
   const base = (state && typeof state === 'object' && !Array.isArray(state)) ? state : {};
   let cur = { ...base };
-  for (const step of steps || []) {
+  const list = Array.isArray(steps) ? steps : [];
+  for (let index = 0; index < list.length; index += 1) {
+    const step = list[index];
     const children = Array.isArray(step.children)
       ? { children: step.children }
       : (step.children || null);
@@ -119,8 +212,9 @@ export async function runSteps(ctx, steps, state, slot) {
       ctx._pushScope();
       try {
         return await runSteps(ctx, childrenArray || [], baseState, slotVars ?? slot);
+      } finally {
+        await ctx._popScope();
       }
-      finally { await ctx._popScope(); }
     };
     ctx.runSlot = async (name, localState, slotVars) => {
       const arr = (children && (children[name] || (name === 'children' ? children.children : null))) || [];
@@ -128,19 +222,57 @@ export async function runSteps(ctx, steps, state, slot) {
       ctx._pushScope();
       try {
         return await runSteps(ctx, arr, baseState, slotVars ?? slot);
+      } finally {
+        await ctx._popScope();
       }
-      finally { await ctx._popScope(); }
     };
 
     const input = buildInput(step.in || {}, cur, slot);
+    const startPayload = buildStartData(
+      index,
+      step,
+      nonEmptyKeys(input),
+      nonEmptyKeys(slot),
+      stepHasChildren(step)
+    );
+    try {
+      await logKernelInfo(ctx, 'compose.step', {
+        tags: composeStepTags(step),
+        data: startPayload
+      });
+    } catch (_) {
+      // ignore logging failures
+    }
+
+    const startTime = process.hrtime.bigint();
     ctx._pushScope();
-   let res;
-   try { res = await ctx.call(step.call, input, { children, slot, collectPath: step.collectPath }); }
-    finally {
+    let res;
+    let callError;
+    try {
+      res = await ctx.call(step.call, input, { children, slot, collectPath: step.collectPath });
+    } catch (error) {
+      callError = error;
+    } finally {
       await ctx._popScope();
       ctx.runChildren = prevRunChildren;
       ctx.runSlot = prevRunSlot;
     }
+
+    const durationMs = Number(process.hrtime.bigint() - startTime) / 1e6;
+
+    if (callError) {
+      const errorPayload = buildErrorData(index, durationMs, callError);
+      try {
+        await logKernelError(ctx, 'compose.step', {
+          tags: composeStepTags(step),
+          data: errorPayload
+        });
+      } catch (_) {
+        // ignore logging failures
+      }
+      throw callError;
+    }
+
     const spreadsOut = Array.isArray(step.out?.[SPREAD_KEY]) ? step.out[SPREAD_KEY] : null;
     if (spreadsOut && res && typeof res === 'object') {
       for (const descriptor of spreadsOut) {
@@ -193,6 +325,16 @@ export async function runSteps(ctx, steps, state, slot) {
         continue;
       }
       cur[alias] = resolved;
+    }
+
+    const successPayload = buildSuccessData(index, durationMs, res);
+    try {
+      await logKernelInfo(ctx, 'compose.step', {
+        tags: composeStepTags(step),
+        data: successPayload
+      });
+    } catch (_) {
+      // ignore logging failures
     }
   }
   return cur;
