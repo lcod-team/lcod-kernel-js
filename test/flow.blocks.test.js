@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-import { Registry, Context } from '../src/registry.js';
+import { Registry, Context, createCancellationToken, ExecutionCancelledError } from '../src/registry.js';
 import { registerDemoAxioms } from '../src/axioms.js';
 import { runCompose } from '../src/compose.js';
 import { flowIf } from '../src/flow/if.js';
@@ -15,6 +15,8 @@ import { flowTry } from '../src/flow/try.js';
 import { flowThrow } from '../src/flow/throw.js';
 import { flowBreak } from '../src/flow/break.js';
 import { flowContinue } from '../src/flow/continue.js';
+import { flowCheckAbort } from '../src/flow/check_abort.js';
+import { flowWhile } from '../src/flow/while.js';
 import { registerStreamContracts } from '../src/core/streams.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -62,6 +64,17 @@ function buildDemoContext() {
   reg.register('lcod://flow/throw@1', flowThrow);
   reg.register('lcod://flow/break@1', flowBreak);
   reg.register('lcod://flow/continue@1', flowContinue);
+  reg.register('lcod://flow/check_abort@1', flowCheckAbort);
+  reg.register('lcod://flow/while@1', flowWhile);
+  reg.register('lcod://test/inc@1', async (_ctx, { count = 0 }) => ({ count: count + 1 }));
+  reg.register('lcod://test/lt@1', async (_ctx, { value = 0, limit = 0 }) => ({ ok: value < limit }));
+  reg.register('lcod://test/cancel_when@1', async (ctx, { count = 0, cancelAt = 0 }) => {
+    const next = count + 1;
+    if (next >= cancelAt) {
+      ctx.cancel();
+    }
+    return { count: next };
+  });
   registerStreamContracts(reg);
   return new Context(reg);
 }
@@ -269,4 +282,109 @@ test('flow parallel collects tasks in input order', async () => {
 
   const { results } = await runCompose(ctx, compose, { jobs });
   assert.deepEqual(results, ['first', 'second', 'third']);
+});
+
+test('flow while iterates until condition fails', async () => {
+  const ctx = buildDemoContext();
+  const compose = [
+    {
+      call: 'lcod://flow/while@1',
+      in: { state: { count: 0 }, maxIterations: 10 },
+      children: {
+        condition: [
+          { call: 'lcod://test/lt@1', in: { value: '$.count', limit: 3 }, out: { shouldContinue: 'ok' } },
+          { call: 'lcod://impl/set@1', in: { continue: '$.shouldContinue' }, out: { continue: 'continue' } }
+        ],
+        body: [
+          { call: 'lcod://test/inc@1', in: { count: '$.count' }, out: { count: 'count' } }
+        ]
+      },
+      out: { state: 'state', iterations: 'iterations' }
+    }
+  ];
+
+  const result = await runCompose(ctx, compose, {});
+  assert.deepEqual(result, { state: { count: 3 }, iterations: 3 });
+});
+
+test('flow while enforces maxIterations', async () => {
+  const ctx = buildDemoContext();
+  const compose = [
+    {
+      call: 'lcod://flow/while@1',
+      in: { state: { count: 0 }, maxIterations: 2 },
+      children: {
+        condition: [
+          { call: 'lcod://impl/set@1', in: { continue: true }, out: { continue: 'continue' } }
+        ],
+        body: [
+          { call: 'lcod://test/inc@1', in: { count: '$.count' }, out: { count: 'count' } }
+        ]
+      }
+    }
+  ];
+
+  await assert.rejects(
+    runCompose(ctx, compose, {}),
+    err => {
+      assert.match(err?.message ?? '', /maxIterations/);
+      return true;
+    }
+  );
+});
+
+test('flow while runs else branch when loop never executes', async () => {
+  const ctx = buildDemoContext();
+  const compose = [
+    {
+      call: 'lcod://flow/while@1',
+      in: { state: { count: 0 } },
+      children: {
+        condition: [
+          { call: 'lcod://impl/set@1', in: { continue: false }, out: { continue: 'continue' } }
+        ],
+        else: [
+          { call: 'lcod://impl/set@1', in: { count: 42 }, out: { count: 'count' } }
+        ]
+      },
+      out: { state: 'state', iterations: 'iterations' }
+    }
+  ];
+
+  const result = await runCompose(ctx, compose, {});
+  assert.deepEqual(result, { state: { count: 42 }, iterations: 0 });
+});
+
+test('flow check_abort stops execution when cancelled', async () => {
+  const reg = new Registry();
+  reg.register('lcod://flow/check_abort@1', flowCheckAbort);
+  reg.register('lcod://impl/echo@1', async (_ctx, { value }) => ({ val: value }));
+  const token = createCancellationToken();
+  token.cancel();
+  const ctx = new Context(reg, { cancellation: token });
+  const compose = [
+    { call: 'lcod://flow/check_abort@1' },
+    { call: 'lcod://impl/echo@1', in: { value: 'should not run' }, out: { val: 'val' } }
+  ];
+  await assert.rejects(runCompose(ctx, compose, {}), ExecutionCancelledError);
+});
+
+test('flow while respects cancellation signalled within body', async () => {
+  const ctx = buildDemoContext();
+  const compose = [
+    {
+      call: 'lcod://flow/while@1',
+      in: { state: { count: 0 }, maxIterations: 10 },
+      children: {
+        condition: [
+          { call: 'lcod://impl/set@1', in: { continue: true }, out: { continue: 'continue' } }
+        ],
+        body: [
+          { call: 'lcod://test/cancel_when@1', in: { count: '$.count', cancelAt: 3 }, out: { count: 'count' } }
+        ]
+      }
+    }
+  ];
+
+  await assert.rejects(runCompose(ctx, compose, {}), ExecutionCancelledError);
 });
