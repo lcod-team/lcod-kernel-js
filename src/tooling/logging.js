@@ -116,7 +116,10 @@ async function emitLog(ctx, input, kernelTags) {
   const declaredLevel =
     typeof payload.level === 'string' ? payload.level.trim().toLowerCase() : undefined;
   const bindingId = ctx.registry.bindings?.[LOG_CONTRACT_ID];
-  const customBinding = hasCustomBinding(bindingId) && !kernelTags;
+  if (kernelTags && declaredLevel && levelRank(declaredLevel) < getThreshold()) {
+    return {};
+  }
+  const customBinding = hasCustomBinding(bindingId);
   if (declaredLevel && LEVEL_ORDER.has(declaredLevel)) {
     if (levelRank(declaredLevel) < getThreshold() && !customBinding) {
       return {};
