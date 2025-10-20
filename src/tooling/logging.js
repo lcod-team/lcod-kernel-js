@@ -119,7 +119,7 @@ async function emitLog(ctx, input, kernelTags) {
   if (kernelTags && declaredLevel && levelRank(declaredLevel) < getThreshold()) {
     return {};
   }
-  const customBinding = hasCustomBinding(bindingId);
+  const customBinding = hasCustomBinding(bindingId) || !kernelTags;
   if (declaredLevel && LEVEL_ORDER.has(declaredLevel)) {
     if (levelRank(declaredLevel) < getThreshold() && !customBinding) {
       return {};
