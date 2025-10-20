@@ -44,6 +44,7 @@ const LOG_SCHEMA = {
 
 let cachedValidator;
 let cachedThreshold;
+let cachedEnvLevel;
 
 async function ensureValidator() {
   if (!cachedValidator) {
@@ -59,8 +60,10 @@ function parseLevelThreshold(value) {
 }
 
 function getThreshold() {
-  if (cachedThreshold === undefined) {
-    cachedThreshold = parseLevelThreshold(process.env.LCOD_LOG_LEVEL) ?? LEVEL_ORDER.get('fatal');
+  const envLevel = process.env.LCOD_LOG_LEVEL ?? null;
+  if (cachedThreshold === undefined || cachedEnvLevel !== envLevel) {
+    cachedEnvLevel = envLevel;
+    cachedThreshold = parseLevelThreshold(envLevel) ?? LEVEL_ORDER.get('fatal');
   }
   return cachedThreshold;
 }
@@ -77,6 +80,7 @@ export function setKernelLogLevel(level) {
   const parsed = parseLevelThreshold(level);
   if (parsed !== undefined) {
     cachedThreshold = parsed;
+    cachedEnvLevel = level;
   }
 }
 
@@ -116,10 +120,12 @@ async function emitLog(ctx, input, kernelTags) {
   const declaredLevel =
     typeof payload.level === 'string' ? payload.level.trim().toLowerCase() : undefined;
   const bindingId = ctx.registry.bindings?.[LOG_CONTRACT_ID];
-  if (kernelTags && declaredLevel && levelRank(declaredLevel) < getThreshold()) {
+  const hasKernelTags = Boolean(kernelTags && Object.keys(kernelTags).length > 0);
+  const isKernelComponent = Boolean(kernelTags && kernelTags.component === 'kernel');
+  if (isKernelComponent && declaredLevel && levelRank(declaredLevel) < getThreshold()) {
     return {};
   }
-  const customBinding = hasCustomBinding(bindingId) || !kernelTags;
+  const customBinding = hasCustomBinding(bindingId) || !hasKernelTags;
   if (declaredLevel && LEVEL_ORDER.has(declaredLevel)) {
     if (levelRank(declaredLevel) < getThreshold() && !customBinding) {
       return {};
@@ -131,7 +137,11 @@ async function emitLog(ctx, input, kernelTags) {
   }
 
   const scopeTags = ctx._logScope?.length ? Object.assign({}, ...ctx._logScope) : {};
-  const combinedTags = { ...scopeTags, ...kernelTags, ...stableTags(payload.tags) };
+  const combinedTags = {
+    ...scopeTags,
+    ...(hasKernelTags ? kernelTags : {}),
+    ...stableTags(payload.tags)
+  };
   if (Object.keys(combinedTags).length) {
     payload.tags = combinedTags;
   } else {
