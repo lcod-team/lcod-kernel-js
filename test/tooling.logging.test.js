@@ -4,7 +4,12 @@ import assert from 'node:assert/strict';
 import { Registry, Context } from '../src/registry.js';
 import { registerTooling } from '../src/tooling/index.js';
 import { runCompose } from '../src/compose.js';
-import { LOG_CONTRACT_ID, KERNEL_HELPER_ID, LOG_CONTEXT_HELPER_ID } from '../src/tooling/logging.js';
+import {
+  LOG_CONTRACT_ID,
+  KERNEL_HELPER_ID,
+  LOG_CONTEXT_HELPER_ID,
+  setKernelLogLevel
+} from '../src/tooling/logging.js';
 
 function setup() {
   const registry = registerTooling(new Registry());
@@ -54,11 +59,13 @@ test('binding reroutes logs and kernel helper adds component tag', async () => {
     [LOG_CONTRACT_ID]: 'lcod://impl/testing/logger@1'
   });
 
+  setKernelLogLevel('trace');
   const logImpl = registry.get(LOG_CONTRACT_ID);
   await logImpl.fn(ctx, { level: 'debug', message: 'app msg', tags: { feature: 'x' } });
 
   const kernelHelper = registry.get(KERNEL_HELPER_ID);
   await kernelHelper.fn(ctx, { level: 'warn', message: 'kernel msg' });
+  setKernelLogLevel('fatal');
 
   assert.equal(captured.length, 2);
   assert.equal(captured[0].message, 'app msg');

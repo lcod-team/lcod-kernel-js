@@ -73,6 +73,13 @@ function hasCustomBinding(binding) {
   return Boolean(binding && binding !== KERNEL_HELPER_ID && binding !== LOG_CONTRACT_ID);
 }
 
+export function setKernelLogLevel(level) {
+  const parsed = parseLevelThreshold(level);
+  if (parsed !== undefined) {
+    cachedThreshold = parsed;
+  }
+}
+
 function stableTags(value) {
   if (!value || typeof value !== 'object') return {};
   const out = {};
@@ -109,7 +116,7 @@ async function emitLog(ctx, input, kernelTags) {
   const declaredLevel =
     typeof payload.level === 'string' ? payload.level.trim().toLowerCase() : undefined;
   const bindingId = ctx.registry.bindings?.[LOG_CONTRACT_ID];
-  const customBinding = hasCustomBinding(bindingId);
+  const customBinding = hasCustomBinding(bindingId) && !kernelTags;
   if (declaredLevel && LEVEL_ORDER.has(declaredLevel)) {
     if (levelRank(declaredLevel) < getThreshold() && !customBinding) {
       return {};
