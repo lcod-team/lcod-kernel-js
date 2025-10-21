@@ -173,7 +173,10 @@ export function registerStdHelpers(registry) {
       const slotVars = {
         index: iterations,
         remaining: queue.length,
-        visitedCount: visited.size
+        visitedCount: visited.size,
+        item,
+        state,
+        context: contextValue
       };
 
       let keyValue = null;
