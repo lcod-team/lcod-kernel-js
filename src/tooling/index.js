@@ -4,6 +4,7 @@ import { registerResolverHelpers } from './resolver-helpers.js';
 import { registerRegistryScope } from './registry-scope.js';
 import { registerLogging, logKernelWarn } from './logging.js';
 import { registerRegistryComponents } from './registry-components.js';
+import { registerStdHelpers } from './std-helpers.js';
 
 export function registerTooling(registry) {
   registerTestChecker(registry);
@@ -11,6 +12,7 @@ export function registerTooling(registry) {
   registerResolverHelpers(registry);
   registerRegistryScope(registry);
   registerLogging(registry);
+  registerStdHelpers(registry);
   const bootstrapPromise = Promise.resolve()
     .then(() => registerRegistryComponents(registry))
     .catch((err) => {

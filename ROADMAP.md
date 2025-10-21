@@ -44,4 +44,5 @@ Next:
 
 ## M8 — Standard library primitives
 - [x] M8-02 Implement core primitives (`object/merge`, `array/append`, `string/format`, `json/encode`, `json/decode`) and expose them via `registerNodeCore` (refs #22).
+- [x] M8-03 Register tooling/object clone/set/has, json.stable_stringify, hash.to_key, and queue.bfs as native helpers (#24).
 - [ ] Wire the `std_primitives` fixture into CI once resolver CLI tests are green again.
