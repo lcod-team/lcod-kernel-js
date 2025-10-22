@@ -131,15 +131,42 @@ function nonEmptyKeys(candidate) {
   return keys.length > 0 ? keys : undefined;
 }
 
-function stepHasChildren(step) {
-  if (!step || !step.children) return false;
-  if (Array.isArray(step.children)) {
-    return step.children.length > 0;
-  }
-  if (typeof step.children === 'object') {
-    return Object.values(step.children).some(value => Array.isArray(value) && value.length > 0);
-  }
-  return false;
+function normalizeSlotMap(step) {
+  if (!step || typeof step !== 'object') return null;
+  const result = {};
+  const assign = (key, value) => {
+    if (Array.isArray(value)) {
+      result[key] = value;
+    }
+  };
+  const merge = (source) => {
+    if (!source) return;
+    if (Array.isArray(source)) {
+      assign('children', source);
+      return;
+    }
+    if (typeof source === 'object') {
+      for (const [name, value] of Object.entries(source)) {
+        assign(name, value);
+      }
+    }
+  };
+  merge(step.children);
+  merge(step.slots);
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function hasSlotEntries(slotMap) {
+  if (!slotMap || typeof slotMap !== 'object') return false;
+  return Object.values(slotMap).some(value => Array.isArray(value) && value.length > 0);
+}
+
+function resolveSlotSteps(slotMap, name) {
+  if (!slotMap) return [];
+  if (Array.isArray(slotMap[name])) return slotMap[name];
+  if (name === 'children' && Array.isArray(slotMap.body)) return slotMap.body;
+  if (name === 'body' && Array.isArray(slotMap.children)) return slotMap.children;
+  return [];
 }
 
 function buildStartData(index, step, inputKeys, slotKeys, hasChildren) {
@@ -202,9 +229,11 @@ export async function runSteps(ctx, steps, state, slot) {
   for (let index = 0; index < list.length; index += 1) {
     ctx.ensureNotCancelled();
     const step = list[index];
-    const children = Array.isArray(step.children)
-      ? { children: step.children }
-      : (step.children || null);
+    const slotMap = normalizeSlotMap(step);
+    const childrenMeta = slotMap ? { ...slotMap } : null;
+    if (childrenMeta && !childrenMeta.children && Array.isArray(childrenMeta.body)) {
+      childrenMeta.children = childrenMeta.body;
+    }
 
     const prevRunChildren = ctx.runChildren;
     const prevRunSlot = ctx.runSlot;
@@ -220,7 +249,7 @@ export async function runSteps(ctx, steps, state, slot) {
     };
     ctx.runSlot = async (name, localState, slotVars) => {
       ctx.ensureNotCancelled();
-      const arr = (children && (children[name] || (name === 'children' ? children.children : null))) || [];
+      const arr = resolveSlotSteps(slotMap, name);
       const baseState = localState == null ? cur : localState;
       ctx._pushScope();
       try {
@@ -236,7 +265,7 @@ export async function runSteps(ctx, steps, state, slot) {
       step,
       nonEmptyKeys(input),
       nonEmptyKeys(slot),
-      stepHasChildren(step)
+      hasSlotEntries(slotMap)
     );
     try {
       await logKernelInfo(ctx, 'compose.step', {
@@ -252,7 +281,7 @@ export async function runSteps(ctx, steps, state, slot) {
     let res;
     let callError;
     try {
-      res = await ctx.call(step.call, input, { children, slot, collectPath: step.collectPath });
+      res = await ctx.call(step.call, input, { children: childrenMeta, slots: slotMap, slot, collectPath: step.collectPath });
     } catch (error) {
       callError = error;
     } finally {
