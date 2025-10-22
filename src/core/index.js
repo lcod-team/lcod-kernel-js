@@ -314,7 +314,7 @@ export function registerNodeCore(reg) {
   registerStreamContracts(reg);
 
   // Filesystem contracts
-  reg.register('lcod://contract/core/fs/read-file@1', async (_ctx, input = {}) => {
+  const fsReadFile = async (_ctx, input = {}) => {
     const { path: filePath, encoding = 'utf-8' } = input;
     if (!filePath) throw new Error('path is required');
     const stats = await fs.stat(filePath);
@@ -332,9 +332,11 @@ export function registerNodeCore(reg) {
       size: stats.size,
       mtime: stats.mtime.toISOString()
     };
-  });
+  };
+  reg.register('lcod://contract/core/fs/read-file@1', fsReadFile);
+  reg.register('lcod://contract/core/fs/read_file@1', fsReadFile);
 
-  reg.register('lcod://contract/core/fs/write-file@1', async (_ctx, input = {}) => {
+  const fsWriteFile = async (_ctx, input = {}) => {
     const { path: filePath, data, encoding = 'utf-8', append = false, createParents = false, mode } = input;
     if (!filePath) throw new Error('path is required');
     const dir = path.dirname(filePath);
@@ -352,9 +354,11 @@ export function registerNodeCore(reg) {
       bytesWritten: buf.length,
       mtime: stats.mtime.toISOString()
     };
-  });
+  };
+  reg.register('lcod://contract/core/fs/write-file@1', fsWriteFile);
+  reg.register('lcod://contract/core/fs/write_file@1', fsWriteFile);
 
-  reg.register('lcod://contract/core/fs/list-dir@1', async (_ctx, input = {}) => {
+  const fsListDir = async (_ctx, input = {}) => {
     const { path: dirPath, recursive = false, maxDepth = Infinity, includeStats = false, includeHidden = false, pattern } = input;
     if (!dirPath) throw new Error('path is required');
     const entries = [];
@@ -384,7 +388,9 @@ export function registerNodeCore(reg) {
     };
     await walk(dirPath, 0);
     return { entries };
-  });
+  };
+  reg.register('lcod://contract/core/fs/list-dir@1', fsListDir);
+  reg.register('lcod://contract/core/fs/list_dir@1', fsListDir);
 
   // Stream contracts already registered above.
 
