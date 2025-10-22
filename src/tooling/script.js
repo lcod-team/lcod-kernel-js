@@ -206,6 +206,7 @@ export function registerScriptContract(registry) {
 
     const bindings = buildBindings(initialState, input.bindings);
     const scope = {
+      bindings,
       input: bindings,
       state: deepClone(initialState),
       meta: deepClone(input.meta || {})
