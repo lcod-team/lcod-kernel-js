@@ -124,14 +124,25 @@ compose:
             if (isPlainObject(next.out)) {
               next.out = normalizeMap(next.out, MAPPING_TYPES.OUTPUT, 0);
             }
-            if (Array.isArray(next.children)) {
-              next.children = next.children.map(normalizeStep);
-            } else if (isPlainObject(next.children)) {
-              const children = {};
-              for (const [slot, value] of Object.entries(next.children)) {
-                children[slot] = Array.isArray(value) ? value.map(normalizeStep) : value;
+            const mapSlots = (raw) => {
+              if (!raw) return undefined;
+              if (Array.isArray(raw)) {
+                return { body: raw.map(normalizeStep) };
               }
-              next.children = children;
+              if (isPlainObject(raw)) {
+                const mapped = {};
+                for (const [slot, value] of Object.entries(raw)) {
+                  mapped[slot] = Array.isArray(value) ? value.map(normalizeStep) : value;
+                }
+                return mapped;
+              }
+              return undefined;
+            };
+
+            const normalizedSlots = mapSlots(next.slots) || mapSlots(next.children);
+            if (normalizedSlots) {
+              next.slots = normalizedSlots;
+              next.children = normalizedSlots;
             }
             return next;
           };
