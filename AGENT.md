@@ -7,6 +7,7 @@ Deliver a minimal TS kernel compliant with LCP, executable without real network.
 - Strict TypeScript; avoid fragile string templating for codegen.
 - No real HTTP in tests (mocks only).
 - Stable API: `Func`, `Registry`, `Context`.
+- Alias filesystem contracts (`read_file` etc.) for spec compatibility.
 
 ## Definition of Done
 - `npm test` passes (incl. `my_weather` example)
