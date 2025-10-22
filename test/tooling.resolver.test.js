@@ -102,17 +102,24 @@ function canonicalizeStep(step, context) {
   if (typeof step.call === 'string') {
     step.call = canonicalizeId(step.call, context);
   }
-  if (step.children) {
-    if (Array.isArray(step.children)) {
-      for (const child of step.children) canonicalizeStep(child, context);
-    } else if (typeof step.children === 'object') {
-      for (const key of Object.keys(step.children)) {
-        const branch = step.children[key];
-        if (Array.isArray(branch)) {
-          for (const child of branch) canonicalizeStep(child, context);
-        } else if (branch && typeof branch === 'object') {
-          canonicalizeValue(branch, context);
-        }
+  const slotCollections = [];
+  if (step.slots && typeof step.slots === 'object') {
+    slotCollections.push(step.slots);
+  }
+  if (step.children && typeof step.children === 'object') {
+    slotCollections.push(step.children);
+  }
+  for (const collection of slotCollections) {
+    if (Array.isArray(collection)) {
+      for (const child of collection) canonicalizeStep(child, context);
+      continue;
+    }
+    for (const key of Object.keys(collection)) {
+      const branch = collection[key];
+      if (Array.isArray(branch)) {
+        for (const child of branch) canonicalizeStep(child, context);
+      } else if (branch && typeof branch === 'object') {
+        canonicalizeValue(branch, context);
       }
     }
   }

@@ -164,6 +164,7 @@ function hasSlotEntries(slotMap) {
 function resolveSlotSteps(slotMap, name) {
   if (!slotMap) return [];
   if (Array.isArray(slotMap[name])) return slotMap[name];
+  // TODO(M7-00): remove the legacy `children` alias when downstream composes stop using it.
   if (name === 'children' && Array.isArray(slotMap.body)) return slotMap.body;
   if (name === 'body' && Array.isArray(slotMap.children)) return slotMap.children;
   return [];
@@ -232,6 +233,7 @@ export async function runSteps(ctx, steps, state, slot) {
     const slotMap = normalizeSlotMap(step);
     const childrenMeta = slotMap ? { ...slotMap } : null;
     if (childrenMeta && !childrenMeta.children && Array.isArray(childrenMeta.body)) {
+      // TODO(M7-00): drop this shim along with `runChildren` once legacy composes stop sending `children`.
       childrenMeta.children = childrenMeta.body;
     }
 

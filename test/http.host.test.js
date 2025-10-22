@@ -51,7 +51,7 @@ test('env/http_host serves routes from project/http_app', async () => {
         port: 0,
         basePath: '/api'
       },
-      children: {
+      slots: {
         projects: [
           {
             call: 'lcod://project/http_app@0.1.0',
@@ -60,7 +60,7 @@ test('env/http_host serves routes from project/http_app', async () => {
               basePath: '/catalog'
             },
             out: { project: '$' },
-            children: {
+            slots: {
               sequences: [
                 {
                   call: 'lcod://tooling/script@1',
@@ -81,7 +81,7 @@ test('env/http_host serves routes from project/http_app', async () => {
                 {
                   call: 'lcod://flow/foreach@1',
                   in: { list: '$.routes' },
-                  children: {
+                  slots: {
                     body: [
                       {
                         call: 'lcod://http/api_route@0.1.0',
@@ -94,8 +94,8 @@ test('env/http_host serves routes from project/http_app', async () => {
                       }
                     ]
                   },
-                collectPath: '$.route',
-                out: { routes: 'results' }
+                  collectPath: '$.route',
+                  out: { routes: 'results' }
                 }
               ]
             }

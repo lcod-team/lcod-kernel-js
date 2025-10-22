@@ -23,14 +23,14 @@ test('normalizeCompose expands identity inputs and outputs', async () => {
   assert.equal(normalized[0].out.bar, 'bar');
 });
 
-test('normalizeCompose processes children recursively', async () => {
+test('normalizeCompose processes slots recursively', async () => {
   const compose = [
     {
       call: 'lcod://flow/if@1',
       in: {
         cond: '='
       },
-      children: {
+      slots: {
         then: [
           {
             call: 'lcod://impl/echo@1',
@@ -45,8 +45,8 @@ test('normalizeCompose processes children recursively', async () => {
   const normalized = await normalizeCompose(compose);
   const step = normalized[0];
   assert.equal(step.in.cond, '$.cond');
-  assert.equal(step.children.then[0].in.value, '$.value');
-  assert.equal(step.children.then[0].out.result, 'result');
+  assert.equal(step.slots.then[0].in.value, '$.value');
+  assert.equal(step.slots.then[0].out.result, 'result');
 });
 
 test('normalizeCompose supports spreads and optional mappings', async () => {
@@ -75,4 +75,23 @@ test('normalizeCompose supports spreads and optional mappings', async () => {
   assert.equal(step.in.configPath.value, '$.configPath');
   assert.equal(step.in.required, '$.required');
   assert.equal(step.out.result, 'result');
+});
+
+test('normalizeCompose still accepts legacy children shorthand', async () => {
+  const compose = [
+    {
+      call: 'lcod://flow/if@1',
+      in: { cond: '=' },
+      children: {
+        then: [
+          { call: 'lcod://impl/echo@1', in: { value: '=' }, out: { result: '=' } }
+        ]
+      }
+    }
+  ];
+
+  const normalized = await normalizeCompose(compose);
+  const step = normalized[0];
+  assert.equal(step.slots.then[0].in.value, '$.value');
+  assert.equal(step.slots.then[0].out.result, 'result');
 });

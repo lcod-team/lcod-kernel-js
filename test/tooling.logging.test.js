@@ -89,16 +89,20 @@ test('log context helper merges tags and restores them on exit', async () => {
     {
       call: LOG_CONTEXT_HELPER_ID,
       in: { tags: { requestId: 'abc' } },
-      children: [
-        { call: LOG_CONTRACT_ID, in: { level: 'info', message: 'first' } },
-        {
-          call: LOG_CONTEXT_HELPER_ID,
-          in: { tags: { userId: 'u1' } },
-          children: [
-            { call: LOG_CONTRACT_ID, in: { level: 'info', message: 'nested' } }
-          ]
-        }
-      ]
+      slots: {
+        body: [
+          { call: LOG_CONTRACT_ID, in: { level: 'info', message: 'first' } },
+          {
+            call: LOG_CONTEXT_HELPER_ID,
+            in: { tags: { userId: 'u1' } },
+            slots: {
+              body: [
+                { call: LOG_CONTRACT_ID, in: { level: 'info', message: 'nested' } }
+              ]
+            }
+          }
+        ]
+      }
     },
     { call: LOG_CONTRACT_ID, in: { level: 'info', message: 'after' } }
   ];

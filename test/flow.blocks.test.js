@@ -85,7 +85,7 @@ test('foreach collects child output with collectPath', async () => {
     {
       call: 'lcod://flow/foreach@1',
       in: { list: '$.numbers' },
-      children: {
+      slots: {
         body: [
           { call: 'lcod://impl/echo@1', in: { value: '$slot.item' }, out: { val: 'val' } }
         ]
@@ -105,7 +105,7 @@ test('foreach executes else slot when list is empty', async () => {
     {
       call: 'lcod://flow/foreach@1',
       in: { list: '$.numbers' },
-      children: {
+      slots: {
         body: [
           { call: 'lcod://impl/echo@1', in: { value: '$slot.item' }, out: { val: 'val' } }
         ],
@@ -128,7 +128,7 @@ test('foreach exposes slot variables in collectPath', async () => {
     {
       call: 'lcod://flow/foreach@1',
       in: { list: '$.numbers' },
-      children: { body: [] },
+      slots: { body: [] },
       collectPath: '$slot.index',
       out: { results: 'results' }
     }
@@ -144,12 +144,12 @@ test('foreach handles continue and break signals', async () => {
     {
       call: 'lcod://flow/foreach@1',
       in: { list: '$.numbers' },
-      children: {
+      slots: {
         body: [
           { call: 'lcod://impl/is_even@1', in: { value: '$slot.item' }, out: { isEven: 'ok' } },
-          { call: 'lcod://flow/if@1', in: { cond: '$.isEven' }, children: { then: [ { call: 'lcod://flow/continue@1' } ] } },
+          { call: 'lcod://flow/if@1', in: { cond: '$.isEven' }, slots: { then: [ { call: 'lcod://flow/continue@1' } ] } },
           { call: 'lcod://impl/gt@1', in: { value: '$slot.item', limit: 7 }, out: { tooBig: 'ok' } },
-          { call: 'lcod://flow/if@1', in: { cond: '$.tooBig' }, children: { then: [ { call: 'lcod://flow/break@1' } ] } },
+          { call: 'lcod://flow/if@1', in: { cond: '$.tooBig' }, slots: { then: [ { call: 'lcod://flow/break@1' } ] } },
           { call: 'lcod://impl/echo@1', in: { value: '$slot.item' }, out: { val: 'val' } }
         ]
       },
@@ -195,7 +195,7 @@ test('foreach consumes async stream input', async () => {
     {
       call: 'lcod://flow/foreach@1',
       in: { stream: '$.numbers' },
-      children: {
+      slots: {
         body: [
           { call: 'lcod://impl/echo@1', in: { value: '$slot.item' }, out: { val: 'val' } }
         ]
@@ -227,8 +227,8 @@ test('flow try catches errors and runs finally', async () => {
   const compose = [
     {
       call: 'lcod://flow/try@1',
-      children: {
-        children: [ { call: 'lcod://impl/fail@1' } ],
+      slots: {
+        body: [ { call: 'lcod://impl/fail@1' } ],
         catch: [ { call: 'lcod://impl/set@1', in: { message: '$slot.error.message' }, out: { message: 'message' } } ],
         finally: [ { call: 'lcod://impl/cleanup@1', out: { cleaned: 'cleaned' } } ]
       },
@@ -245,8 +245,8 @@ test('flow try rethrows when catch missing', async () => {
   const compose = [
     {
       call: 'lcod://flow/try@1',
-      children: {
-        children: [ { call: 'lcod://flow/throw@1', in: { message: 'fail', code: 'oops' } } ]
+      slots: {
+        body: [ { call: 'lcod://flow/throw@1', in: { message: 'fail', code: 'oops' } } ]
       }
     }
   ];
@@ -264,7 +264,7 @@ test('flow parallel collects tasks in input order', async () => {
     {
       call: 'lcod://flow/parallel@1',
       in: { tasks: '$.jobs', parallelism: 2 },
-      children: {
+      slots: {
         tasks: [
           { call: 'lcod://impl/delay@1', in: { value: '$slot.item.value', ms: '$slot.item.ms' }, out: { value: 'value' } }
         ]
@@ -290,7 +290,7 @@ test('flow while iterates until condition fails', async () => {
     {
       call: 'lcod://flow/while@1',
       in: { state: { count: 0 }, maxIterations: 10 },
-      children: {
+      slots: {
         condition: [
           { call: 'lcod://test/lt@1', in: { value: '$.count', limit: 3 }, out: { shouldContinue: 'ok' } },
           { call: 'lcod://impl/set@1', in: { continue: '$.shouldContinue' }, out: { continue: 'continue' } }
@@ -313,7 +313,7 @@ test('flow while enforces maxIterations', async () => {
     {
       call: 'lcod://flow/while@1',
       in: { state: { count: 0 }, maxIterations: 2 },
-      children: {
+      slots: {
         condition: [
           { call: 'lcod://impl/set@1', in: { continue: true }, out: { continue: 'continue' } }
         ],
@@ -339,7 +339,7 @@ test('flow while runs else branch when loop never executes', async () => {
     {
       call: 'lcod://flow/while@1',
       in: { state: { count: 0 } },
-      children: {
+      slots: {
         condition: [
           { call: 'lcod://impl/set@1', in: { continue: false }, out: { continue: 'continue' } }
         ],
@@ -375,7 +375,7 @@ test('flow while respects cancellation signalled within body', async () => {
     {
       call: 'lcod://flow/while@1',
       in: { state: { count: 0 }, maxIterations: 10 },
-      children: {
+      slots: {
         condition: [
           { call: 'lcod://impl/set@1', in: { continue: true }, out: { continue: 'continue' } }
         ],

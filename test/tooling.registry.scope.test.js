@@ -37,12 +37,14 @@ test('registry scope applies temporary bindings and restores afterwards', async 
           'lcod://contract/demo/value@1': 'lcod://impl/demo/scoped@1'
         }
       },
-      children: [
-        {
-          call: 'lcod://contract/demo/value@1',
-          out: { scopedValue: 'result' }
-        }
-      ],
+      slots: {
+        body: [
+          {
+            call: 'lcod://contract/demo/value@1',
+            out: { scopedValue: 'result' }
+          }
+        ]
+      },
       out: {
         scoped: 'scopedValue'
       }
@@ -70,11 +72,13 @@ test('registry scope restores bindings even when children fail', async () => {
           'lcod://contract/demo/value@1': 'lcod://impl/demo/error@1'
         }
       },
-      children: [
-        {
-          call: 'lcod://contract/demo/value@1'
-        }
-      ]
+      slots: {
+        body: [
+          {
+            call: 'lcod://contract/demo/value@1'
+          }
+        ]
+      }
     }
   ];
 
@@ -98,13 +102,15 @@ test('registry scope isolates helper registrations', async () => {
   const compose = [
     {
       call: 'lcod://tooling/registry/scope@1',
-      children: [
-        { call: 'lcod://helper/register-scoped@1' },
-        {
-          call: 'lcod://helper/scoped-temp@1',
-          out: { scoped: 'result' }
-        }
-      ],
+      slots: {
+        body: [
+          { call: 'lcod://helper/register-scoped@1' },
+          {
+            call: 'lcod://helper/scoped-temp@1',
+            out: { scoped: 'result' }
+          }
+        ]
+      },
       out: { scopeResult: 'scoped' }
     }
   ];
@@ -136,12 +142,14 @@ test('registry scope registers inline components for the duration of the scope',
           }
         ]
       },
-      children: [
-        {
-          call: 'lcod://helper/inline-temp@1',
-          out: { scopedValue: 'value' }
-        }
-      ],
+      slots: {
+        body: [
+          {
+            call: 'lcod://helper/inline-temp@1',
+            out: { scopedValue: 'value' }
+          }
+        ]
+      },
       out: { scoped: 'scopedValue' }
     }
   ];
