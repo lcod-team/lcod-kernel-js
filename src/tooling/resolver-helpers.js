@@ -135,35 +135,75 @@ function loadWorkspaceDefinitions(rootPath) {
     }
     const context = createWorkspaceContext(manifest, aliasMap);
     const workspaceComponents = manifest?.workspace?.components;
-    if (!Array.isArray(workspaceComponents)) continue;
-    for (const entry of workspaceComponents) {
-      if (!entry || typeof entry.id !== 'string' || typeof entry.path !== 'string') continue;
-      const componentDir = path.join(pkgDir, entry.path);
-      const composePath = path.join(componentDir, 'compose.yaml');
-      if (!fs.existsSync(composePath)) continue;
-      const canonicalId = canonicalizeId(entry.id, context);
-      const def = {
-        id: canonicalId,
-        composePath,
-        context,
-        cacheKey: `${canonicalId}::${composePath}`,
-        aliases: []
-      };
-      const componentManifestPath = path.join(componentDir, 'lcp.toml');
-      if (fs.existsSync(componentManifestPath)) {
-        try {
-          const compManifest = parseToml(fs.readFileSync(componentManifestPath, 'utf8'));
-          if (compManifest?.id && compManifest.id !== canonicalId) {
-            def.aliases.push(compManifest.id);
+    if (Array.isArray(workspaceComponents)) {
+      for (const entry of workspaceComponents) {
+        if (!entry || typeof entry.id !== 'string' || typeof entry.path !== 'string') continue;
+        const componentDir = path.join(pkgDir, entry.path);
+        const composePath = path.join(componentDir, 'compose.yaml');
+        if (!fs.existsSync(composePath)) continue;
+        const canonicalId = canonicalizeId(entry.id, context);
+        const def = {
+          id: canonicalId,
+          composePath,
+          context,
+          cacheKey: `${canonicalId}::${composePath}`,
+          aliases: []
+        };
+        const componentManifestPath = path.join(componentDir, 'lcp.toml');
+        if (fs.existsSync(componentManifestPath)) {
+          try {
+            const compManifest = parseToml(fs.readFileSync(componentManifestPath, 'utf8'));
+            if (compManifest?.id && compManifest.id !== canonicalId) {
+              def.aliases.push(compManifest.id);
+            }
+          } catch (err) {
+            void logKernelWarn(null, 'Failed to parse component manifest', {
+              data: { componentManifestPath, error: err?.message },
+              tags: { module: 'resolver-helpers' }
+            });
           }
+        }
+        defs.push(def);
+      }
+    }
+
+    const componentsDir = typeof manifest?.workspace?.componentsDir === 'string'
+      ? manifest.workspace.componentsDir.trim()
+      : '';
+    if (componentsDir) {
+      const resolvedDir = path.isAbsolute(componentsDir)
+        ? componentsDir
+        : path.join(pkgDir, componentsDir);
+      const componentDirs = collectComponentDirectories(resolvedDir);
+      for (const componentDir of componentDirs) {
+        const composePath = path.join(componentDir, 'compose.yaml');
+        const manifestPath = path.join(componentDir, 'lcp.toml');
+        if (!fs.existsSync(composePath) || !fs.existsSync(manifestPath)) continue;
+        let componentManifest;
+        try {
+          componentManifest = parseToml(fs.readFileSync(manifestPath, 'utf8'));
         } catch (err) {
           void logKernelWarn(null, 'Failed to parse component manifest', {
-            data: { componentManifestPath, error: err?.message },
+            data: { manifestPath, error: err?.message },
             tags: { module: 'resolver-helpers' }
           });
+          continue;
         }
+        const rawId = typeof componentManifest?.id === 'string' ? componentManifest.id : null;
+        if (!rawId) continue;
+        const canonicalId = canonicalizeId(rawId, context);
+        const def = {
+          id: canonicalId,
+          composePath,
+          context,
+          cacheKey: `${canonicalId}::${composePath}`,
+          aliases: []
+        };
+        if (rawId !== canonicalId) {
+          def.aliases.push(rawId);
+        }
+        defs.push(def);
       }
-      defs.push(def);
     }
   }
   return defs;
@@ -242,6 +282,39 @@ function loadLegacyComponentDefinitions(componentsDir) {
   };
   visit(componentsDir);
   return defs;
+}
+
+function collectComponentDirectories(rootDir) {
+  const collected = [];
+  const visit = (currentDir) => {
+    if (!currentDir || !fs.existsSync(currentDir)) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    let hasManifest = false;
+    let hasCompose = false;
+    const subdirs = [];
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        subdirs.push(path.join(currentDir, entry.name));
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (entry.name === 'lcp.toml') hasManifest = true;
+      if (entry.name === 'compose.yaml') hasCompose = true;
+    }
+    if (hasManifest && hasCompose) {
+      collected.push(currentDir);
+    }
+    for (const subdir of subdirs) {
+      visit(subdir);
+    }
+  };
+  visit(rootDir);
+  return collected;
 }
 
 function canonicalizeId(rawId, context) {
@@ -374,6 +447,8 @@ function ensureFallbackHelperDefinitions(collected) {
       ['lcod://tooling/path/dirname@0.1.0', ['tooling', 'path', 'dirname', 'compose.yaml'], 'tooling/path/dirname'],
       ['lcod://tooling/path/is_absolute@0.1.0', ['tooling', 'path', 'is_absolute', 'compose.yaml'], 'tooling/path/is_absolute'],
       ['lcod://tooling/path/to_file_url@0.1.0', ['tooling', 'path', 'to_file_url', 'compose.yaml'], 'tooling/path/to_file_url'],
+      ['lcod://tooling/make_component_doc@0.1.0', ['tooling', 'make_component_doc', 'compose.yaml'], 'tooling/make_component_doc'],
+      ['lcod://tooling/make_package_doc@0.1.0', ['tooling', 'make_package_doc', 'compose.yaml'], 'tooling/make_package_doc'],
       ['lcod://core/array/append@0.1.0', ['core', 'array', 'append', 'compose.yaml'], 'core/array/append'],
       ['lcod://core/json/decode@0.1.0', ['core', 'json', 'decode', 'compose.yaml'], 'core/json/decode'],
       ['lcod://core/json/encode@0.1.0', ['core', 'json', 'encode', 'compose.yaml'], 'core/json/encode'],
