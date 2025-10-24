@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { Registry, Context } from '../src/registry.js';
 import { registerTooling } from '../src/tooling/index.js';
@@ -9,6 +12,122 @@ function createRegistry() {
   registerTooling(registry);
   return registry;
 }
+
+test('value.is_defined distinguishes defined values', async () => {
+  const registry = createRegistry();
+  const ctx = new Context(registry);
+
+  const defined = await ctx.call('lcod://contract/tooling/value/is_defined@1', { value: 0 });
+  assert.equal(defined.ok, true);
+
+  const missing = await ctx.call('lcod://contract/tooling/value/is_defined@1', {});
+  assert.equal(missing.ok, false);
+
+  const nullValue = await ctx.call('lcod://contract/tooling/value/is_defined@1', { value: null });
+  assert.equal(nullValue.ok, false);
+});
+
+test('string.ensure_trailing_newline adds newline when missing', async () => {
+  const registry = createRegistry();
+  const ctx = new Context(registry);
+
+  const alreadyPresent = await ctx.call(
+    'lcod://contract/tooling/string/ensure_trailing_newline@1',
+    { text: 'hello\n' }
+  );
+  assert.equal(alreadyPresent.text, 'hello\n');
+
+  const appended = await ctx.call(
+    'lcod://contract/tooling/string/ensure_trailing_newline@1',
+    { text: 'hello', newline: '\n' }
+  );
+  assert.equal(appended.text, 'hello\n');
+
+  const custom = await ctx.call(
+    'lcod://contract/tooling/string/ensure_trailing_newline@1',
+    { text: 'greetings', newline: '\r\n' }
+  );
+  assert.equal(custom.text, 'greetings\r\n');
+});
+
+test('array helpers compact/flatten/find_duplicates/append behave as expected', async () => {
+  const registry = createRegistry();
+  const ctx = new Context(registry);
+
+  const compact = await ctx.call('lcod://contract/tooling/array/compact@1', {
+    items: [0, null, undefined, 'a']
+  });
+  assert.deepEqual(compact.values, [0, 'a']);
+
+  const flatten = await ctx.call('lcod://contract/tooling/array/flatten@1', {
+    items: [[1, 2], null, 3, [4]]
+  });
+  assert.deepEqual(flatten.values, [1, 2, 3, 4]);
+
+  const duplicates = await ctx.call('lcod://contract/tooling/array/find_duplicates@1', {
+    items: ['a', 'b', 'a', 'c', 'b', 'b', 1]
+  });
+  assert.deepEqual(duplicates.duplicates.sort(), ['a', 'b']);
+
+  const appended = await ctx.call('lcod://contract/tooling/array/append@1', {
+    items: ['base'],
+    values: ['x', 'y'],
+    value: 'z'
+  });
+  assert.deepEqual(appended.items, ['base', 'x', 'y', 'z']);
+  assert.equal(appended.length, 4);
+});
+
+test('path.join_chain joins segments sequentially', async () => {
+  const registry = createRegistry();
+  const ctx = new Context(registry);
+
+  const result = await ctx.call('lcod://contract/tooling/path/join_chain@1', {
+    base: 'root',
+    segments: ['folder', 'file.txt']
+  });
+  assert.equal(result.path, path.join('root', 'folder', 'file.txt'));
+});
+
+test('fs.read_optional and fs.write_if_changed operate on the filesystem', async () => {
+  const registry = createRegistry();
+  const ctx = new Context(registry);
+
+  const tempDir = await fs.mkdtemp(path.join(tmpdir(), 'lcod-fs-'));
+  const targetPath = path.join(tempDir, 'sample.txt');
+
+  try {
+    const firstWrite = await ctx.call('lcod://contract/tooling/fs/write_if_changed@1', {
+      path: targetPath,
+      content: 'initial'
+    });
+    assert.equal(firstWrite.changed, true);
+
+    const secondWrite = await ctx.call('lcod://contract/tooling/fs/write_if_changed@1', {
+      path: targetPath,
+      content: 'initial'
+    });
+    assert.equal(secondWrite.changed, false);
+
+    const readExisting = await ctx.call('lcod://contract/tooling/fs/read_optional@1', {
+      path: targetPath
+    });
+    assert.equal(readExisting.exists, true);
+    assert.equal(readExisting.text, 'initial');
+    assert.equal(readExisting.warning, null);
+
+    const readMissing = await ctx.call('lcod://contract/tooling/fs/read_optional@1', {
+      path: path.join(tempDir, 'missing.txt'),
+      fallback: 'fallback',
+      warningMessage: 'not found'
+    });
+    assert.equal(readMissing.exists, false);
+    assert.equal(readMissing.text, 'fallback');
+    assert.equal(readMissing.warning, 'not found');
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
 
 test('object.clone deep clones plain objects', async () => {
   const registry = createRegistry();

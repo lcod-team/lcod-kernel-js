@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 const visitedKeyPrefix = 'item:';
 
@@ -16,6 +18,17 @@ function normaliseObject(value) {
 
 function normalisePath(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function isDefined(value) {
+  return value !== undefined && value !== null;
+}
+
+function toNonEmptyString(value) {
+  if (typeof value === 'string' && value.length > 0) {
+    return value;
+  }
+  return null;
 }
 
 function canonicalise(value, stack) {
@@ -68,6 +81,134 @@ function collectWarnings(target, warnings) {
 }
 
 export function registerStdHelpers(registry) {
+  registry.register('lcod://contract/tooling/value/is_defined@1', async (_ctx, input = {}) => {
+    const hasKey = Object.prototype.hasOwnProperty.call(input, 'value');
+    const ok = hasKey && isDefined(input.value);
+    return { ok };
+  });
+
+  registry.register('lcod://contract/tooling/string/ensure_trailing_newline@1', async (_ctx, input = {}) => {
+    const text = typeof input.text === 'string' ? input.text : '';
+    const newline =
+      typeof input.newline === 'string' && input.newline.length > 0 ? input.newline : '\n';
+    if (newline.length === 0 || text.endsWith(newline)) {
+      return { text };
+    }
+    return { text: `${text}${newline}` };
+  });
+
+  registry.register('lcod://contract/tooling/array/compact@1', async (_ctx, input = {}) => {
+    const source = Array.isArray(input.items) ? input.items : [];
+    const values = source.filter((item) => item !== null && item !== undefined);
+    return { values };
+  });
+
+  registry.register('lcod://contract/tooling/array/flatten@1', async (_ctx, input = {}) => {
+    const source = Array.isArray(input.items) ? input.items : [];
+    const values = [];
+    for (const entry of source) {
+      if (Array.isArray(entry)) {
+        values.push(...entry);
+      } else if (entry !== null && entry !== undefined) {
+        values.push(entry);
+      }
+    }
+    return { values };
+  });
+
+  registry.register('lcod://contract/tooling/array/find_duplicates@1', async (_ctx, input = {}) => {
+    const source = Array.isArray(input.items) ? input.items : [];
+    const seen = new Set();
+    const duplicates = new Set();
+    for (const entry of source) {
+      if (typeof entry !== 'string') continue;
+      if (seen.has(entry)) {
+        duplicates.add(entry);
+      } else {
+        seen.add(entry);
+      }
+    }
+    return { duplicates: Array.from(duplicates) };
+  });
+
+  registry.register('lcod://contract/tooling/array/append@1', async (_ctx, input = {}) => {
+    const base = Array.isArray(input.items) ? [...input.items] : [];
+    if (Array.isArray(input.values)) {
+      base.push(...input.values);
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'value')) {
+      base.push(input.value);
+    }
+    return { items: base, length: base.length };
+  });
+
+  registry.register('lcod://contract/tooling/path/join_chain@1', async (_ctx, input = {}) => {
+    let current = typeof input.base === 'string' && input.base.length > 0 ? input.base : '';
+    const segments = Array.isArray(input.segments) ? input.segments : [];
+    for (const segment of segments) {
+      if (segment === null || segment === undefined) continue;
+      const segmentStr = String(segment);
+      if (!segmentStr.length) continue;
+      current = current ? path.join(current, segmentStr) : segmentStr;
+    }
+    return { path: current };
+  });
+
+  registry.register('lcod://contract/tooling/fs/read_optional@1', async (_ctx, input = {}) => {
+    const encoding = toNonEmptyString(input.encoding) || 'utf-8';
+    const pathValue = toNonEmptyString(input.path);
+    const fallbackText = toNonEmptyString(input.fallback);
+    const warningMessage = toNonEmptyString(input.warningMessage);
+
+    if (!pathValue) {
+      return { text: fallbackText ?? null, exists: false, warning: warningMessage ?? null };
+    }
+
+    try {
+      const data = await fs.readFile(pathValue, { encoding });
+      return { text: typeof data === 'string' ? data : null, exists: true, warning: null };
+    } catch (err) {
+      if (fallbackText != null) {
+        return { text: fallbackText, exists: false, warning: warningMessage ?? null };
+      }
+      const warning =
+        warningMessage ?? err?.message ?? (typeof err === 'string' ? err : String(err));
+      return { text: null, exists: false, warning };
+    }
+  });
+
+  registry.register('lcod://contract/tooling/fs/write_if_changed@1', async (_ctx, input = {}) => {
+    const pathValue = typeof input.path === 'string' && input.path.length > 0 ? input.path : null;
+    if (!pathValue) {
+      throw new Error('write_if_changed: path is required');
+    }
+    const encoding = toNonEmptyString(input.encoding) || 'utf-8';
+    let content;
+    if (typeof input.content === 'string') {
+      content = input.content;
+    } else if (!isDefined(input.content)) {
+      content = '';
+    } else {
+      content = String(input.content);
+    }
+
+    let previous = null;
+    try {
+      previous = await fs.readFile(pathValue, { encoding });
+    } catch (err) {
+      if (err?.code !== 'ENOENT') {
+        throw err;
+      }
+    }
+
+    if (previous === content) {
+      return { changed: false };
+    }
+
+    await fs.writeFile(pathValue, content, { encoding });
+    return { changed: true };
+  });
+
   registry.register('lcod://tooling/object/clone@0.1.0', async (_ctx, input = {}) => {
     if (!isPlainObject(input.value)) {
       return { clone: {} };
