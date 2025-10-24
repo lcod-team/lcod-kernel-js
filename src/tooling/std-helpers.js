@@ -151,7 +151,8 @@ export function registerStdHelpers(registry) {
       if (!segmentStr.length) continue;
       current = current ? path.join(current, segmentStr) : segmentStr;
     }
-    return { path: current };
+    const normalized = current ? path.normalize(current).replace(/\\/g, '/') : '';
+    return { path: normalized };
   });
 
   registry.register('lcod://contract/tooling/fs/read_optional@1', async (_ctx, input = {}) => {
