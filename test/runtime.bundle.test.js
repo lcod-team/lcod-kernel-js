@@ -29,20 +29,17 @@ test('LCOD runtime bundle supports catalog generation', async (t) => {
     t.skip('lcod-resolver repository not available');
     return;
   }
-  const componentsRoot = await locateRepo(
-    process.env.LCOD_COMPONENTS_PATH,
-    '../lcod-components'
-  ).catch(() => null);
-  if (!componentsRoot) {
-    t.skip('lcod-components repository not available');
-    return;
-  }
 
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-runtime-js-'));
   const runtimeRoot = path.join(tempRoot, 'lcod-runtime-test');
   await fs.mkdir(runtimeRoot, { recursive: true });
 
+  await copyDir(path.join(specRoot, 'core'), path.join(runtimeRoot, 'core'));
   await copyDir(path.join(specRoot, 'tooling'), path.join(runtimeRoot, 'tooling'));
+  await copyDir(
+    path.join(specRoot, 'resources'),
+    path.join(runtimeRoot, 'resources')
+  );
   await copyDir(
     path.join(specRoot, 'tests', 'spec'),
     path.join(runtimeRoot, 'tests', 'spec')
@@ -58,53 +55,25 @@ test('LCOD runtime bundle supports catalog generation', async (t) => {
     path.join(resolverRoot, 'workspace.lcp.toml'),
     path.join(runtimeRoot, 'resolver', 'workspace.lcp.toml')
   );
-  const componentsTempRoot = path.join(tempRoot, 'lcod-components');
-  await fs.mkdir(componentsTempRoot, { recursive: true });
-  await copyDir(
-    path.join(componentsRoot, 'packages'),
-    path.join(componentsTempRoot, 'packages')
-  );
-  await copyDir(
-    path.join(componentsRoot, 'registry'),
-    path.join(componentsTempRoot, 'registry')
-  );
-  const componentsWorkspace = path.join(componentsRoot, 'workspace.lcp.toml');
-  if (fssync.existsSync(componentsWorkspace)) {
-    await fs.copyFile(
-      componentsWorkspace,
-      path.join(componentsTempRoot, 'workspace.lcp.toml')
-    );
-  }
-  const componentsPackageJson = path.join(componentsRoot, 'package.json');
-  if (fssync.existsSync(componentsPackageJson)) {
-    await fs.copyFile(
-      componentsPackageJson,
-      path.join(componentsTempRoot, 'package.json')
-    );
-  }
   const requiredComponent = path.join(
-    componentsTempRoot,
-    'packages',
-    'std',
-    'components',
+    runtimeRoot,
     'tooling',
-    'array.append',
+    'array',
+    'append',
     'compose.yaml'
   );
   if (!fssync.existsSync(requiredComponent)) {
-    throw new Error(`Failed to stage lcod-components (missing ${requiredComponent})`);
+    throw new Error(`Failed to stage spec tooling helper (missing ${requiredComponent})`);
   }
   const requiredCore = path.join(
-    componentsTempRoot,
-    'packages',
-    'std',
-    'components',
+    runtimeRoot,
     'core',
-    'json.encode',
+    'json',
+    'encode',
     'compose.yaml'
   );
   if (!fssync.existsSync(requiredCore)) {
-    throw new Error(`Failed to stage lcod-components core helpers (missing ${requiredCore})`);
+    throw new Error(`Failed to stage spec core helper (missing ${requiredCore})`);
   }
   await copyDir(
     path.join(resolverRoot, 'packages', 'resolver'),

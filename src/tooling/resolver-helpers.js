@@ -59,25 +59,11 @@ function gatherResolverCandidates() {
   if (process.env.LCOD_RESOLVER_PATH) {
     push({ type: 'root', path: path.resolve(process.env.LCOD_RESOLVER_PATH) });
   }
-  if (process.env.LCOD_COMPONENTS_PATH) {
-    const base = path.resolve(process.env.LCOD_COMPONENTS_PATH);
-    push({ type: 'components', path: base });
-    push({
-      type: 'components',
-      path: path.join(base, 'packages', 'std', 'components')
-    });
-  }
   const specToolingRoot = path.resolve(repoRoot, '..', 'lcod-spec', 'tooling');
   push({ type: 'legacy', path: path.join(specToolingRoot, 'resolver') });
   push({ type: 'legacy', path: path.join(specToolingRoot, 'registry') });
   push({ type: 'legacy', path: specToolingRoot });
   push({ type: 'root', path: path.resolve(repoRoot, '..', 'lcod-resolver') });
-  const localComponentsRoot = path.resolve(repoRoot, '..', 'lcod-components');
-  push({ type: 'components', path: localComponentsRoot });
-  push({
-    type: 'components',
-    path: path.join(localComponentsRoot, 'packages', 'std', 'components')
-  });
   return out;
 }
 

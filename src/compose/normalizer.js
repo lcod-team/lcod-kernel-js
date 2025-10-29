@@ -6,6 +6,7 @@ import { Registry, Context } from '../registry.js';
 import { runSteps } from './runtime.js';
 import { registerTooling } from '../tooling/index.js';
 import { registerNodeCore, registerNodeResolverAxioms } from '../core/index.js';
+import { getRuntimeRoot } from '../tooling/runtime-locator.js';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, '..', '..');
@@ -16,15 +17,19 @@ async function resolveComposePath() {
   if (!composePathPromise) {
     composePathPromise = (async () => {
       const candidates = [];
-      if (process.env.LCOD_SPEC_PATH) {
+      const envSpec = process.env.LCOD_SPEC_PATH || process.env.SPEC_REPO_PATH;
+      if (envSpec) {
         candidates.push(
-          path.resolve(
-            process.env.LCOD_SPEC_PATH,
-            'tooling',
-            'compose',
-            'normalize',
-            'compose.yaml'
-          )
+          path.resolve(envSpec, 'tooling', 'compose', 'normalize', 'compose.yaml')
+        );
+      }
+      const runtimeRoot = getRuntimeRoot();
+      if (runtimeRoot) {
+        candidates.push(
+          path.join(runtimeRoot, 'tooling', 'compose', 'normalize', 'compose.yaml')
+        );
+        candidates.push(
+          path.join(runtimeRoot, 'resources', 'compose', 'normalize', 'compose.yaml')
         );
       }
       candidates.push(

@@ -75,27 +75,13 @@ export async function registerRegistryComponents(registry) {
     });
     return registry;
   }
-  const componentsCandidates = [];
-  if (process.env.LCOD_COMPONENTS_PATH) {
-    componentsCandidates.push(path.resolve(process.env.LCOD_COMPONENTS_PATH));
-  }
-  const runtimeRoot = getRuntimeRoot();
-  if (runtimeRoot) {
-    componentsCandidates.push(path.join(runtimeRoot, 'lcod-components'));
-  }
-  componentsCandidates.push(path.resolve(specRoot, '..', 'lcod-components'));
-  componentsCandidates.push(path.resolve(specRoot, '..', '..', 'lcod-components'));
-  const uniqueCandidates = [...new Set(
-    componentsCandidates.filter((candidate) => typeof candidate === 'string' && candidate.length > 0)
-  )];
-
   const steps = loadComposeFromPath(registerPath);
   const ctx = new Context(registry, { skipRegistryReady: true });
   let resultState;
   try {
     resultState = await runSteps(ctx, steps, {
       specRoot,
-      componentsRootCandidates: uniqueCandidates
+      componentsRootCandidates: []
     });
   } catch (err) {
     await logKernelWarn(null, 'Failed to execute register_components compose', {
