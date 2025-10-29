@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kernel
+        uses: actions/checkout@v4
+
+      - name: Checkout specs
+        uses: actions/checkout@v4
+        with:
+          repository: lcod-team/lcod-spec
+          path: lcod-spec
+
+      - name: Checkout resolver
+        uses: actions/checkout@v4
+        with:
+          repository: lcod-team/lcod-resolver
+          path: lcod-resolver
+
+      - name: Checkout components
+        uses: actions/checkout@v4
+        with:
+          repository: lcod-team/lcod-components
+          path: lcod-components
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package runtime bundle
+        env:
+          SPEC_REPO_PATH: ${{ github.workspace }}/lcod-spec
+          LCOD_RESOLVER_PATH: ${{ github.workspace }}/lcod-resolver
+          LCOD_RESOLVER_COMPONENTS_PATH: ${{ github.workspace }}/lcod-resolver/packages/resolver/components
+          LCOD_COMPONENTS_PATH: ${{ github.workspace }}/lcod-components
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          node scripts/package-runtime.mjs --output dist/runtime --label "${VERSION}"
+          ls -al dist/runtime
+          RUNTIME="dist/runtime/lcod-runtime-${VERSION}.tar.gz"
+          if [ ! -f "${RUNTIME}" ]; then
+            echo "Expected runtime archive ${RUNTIME} not found" >&2
+            exit 1
+          fi
+          cp "${RUNTIME}" "dist/lcod-kernel-js-runtime-${VERSION}.tar.gz"
+          if [ -f dist/runtime/manifest.json ]; then
+            cp dist/runtime/manifest.json "dist/lcod-kernel-js-runtime-manifest-${VERSION}.json"
+          fi
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/lcod-kernel-js-runtime-${{ env.VERSION }}.tar.gz
+            dist/lcod-kernel-js-runtime-manifest-${{ env.VERSION }}.json
+          fail_on_unmatched_files: false
