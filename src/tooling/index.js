@@ -21,6 +21,9 @@ export function registerTooling(registry) {
         tags: { module: 'tooling/index' }
       });
       throw err;
+    })
+    .finally(() => {
+      registerStdHelpers(registry);
     });
   registry.__toolingReady = bootstrapPromise;
   return registry;
