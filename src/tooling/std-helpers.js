@@ -2,8 +2,6 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const visitedKeyPrefix = 'item:';
-
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -78,6 +76,101 @@ function collectWarnings(target, warnings) {
       target.push(warning);
     }
   }
+}
+
+const visitedKeyPrefix = 'item:';
+
+async function queueBfsHelper(ctx, input = {}) {
+  const queue = Array.isArray(input.items) ? [...input.items] : [];
+  const visitedMap = isPlainObject(input.visited) ? { ...input.visited } : {};
+  const visited = new Set(Object.keys(visitedMap));
+  let state = isPlainObject(input.state) ? { ...input.state } : {};
+  const contextValue = Object.prototype.hasOwnProperty.call(input, 'context')
+    ? input.context
+    : undefined;
+
+  const maxIterations = Number.isFinite(input.maxIterations) && input.maxIterations > 0
+    ? Math.trunc(input.maxIterations)
+    : Number.POSITIVE_INFINITY;
+
+  const warnings = [];
+  let iterations = 0;
+
+  while (queue.length > 0) {
+    ctx.ensureNotCancelled();
+    if (iterations >= maxIterations) {
+      throw new Error(`queue/bfs exceeded maxIterations (${maxIterations})`);
+    }
+
+    const item = queue.shift();
+    const slotVars = {
+      index: iterations,
+      remaining: queue.length,
+      visitedCount: visited.size,
+      item,
+      state,
+      context: contextValue
+    };
+
+    let keyValue = null;
+    if (typeof ctx.runSlot === 'function') {
+      try {
+        const candidate = await ctx.runSlot(
+          'key',
+          { item, state, context: contextValue },
+          slotVars
+        );
+        if (typeof candidate === 'string' && candidate.length > 0) {
+          keyValue = candidate;
+        }
+      } catch (err) {
+        warnings.push(`queue/bfs key slot failed: ${err?.message || String(err)}`);
+      }
+    }
+
+    if (!keyValue) {
+      try {
+        keyValue = JSON.stringify(item);
+      } catch (err) {
+        warnings.push(`queue/bfs fallback key serialization failed: ${err?.message || String(err)}`);
+        keyValue = `${visitedKeyPrefix}${iterations}`;
+      }
+    }
+
+    if (visited.has(keyValue)) {
+      iterations += 1;
+      continue;
+    }
+    visited.add(keyValue);
+    visitedMap[keyValue] = true;
+
+    let processResult = {};
+    if (typeof ctx.runSlot === 'function') {
+      const result = await ctx.runSlot(
+        'process',
+        { item, state, context: contextValue },
+        slotVars
+      );
+      if (result && typeof result === 'object') {
+        processResult = result;
+      }
+    }
+
+    appendChildren(queue, processResult.children);
+    if (isPlainObject(processResult.state)) {
+      state = processResult.state;
+    }
+    collectWarnings(warnings, processResult.warnings);
+
+    iterations += 1;
+  }
+
+  return {
+    state,
+    visited: visitedMap,
+    warnings,
+    iterations
+  };
 }
 
 export function registerStdHelpers(registry) {
@@ -291,94 +384,6 @@ export function registerStdHelpers(registry) {
     return { key };
   });
 
-  registry.register('lcod://tooling/queue/bfs@0.1.0', async (ctx, input = {}) => {
-    const queue = Array.isArray(input.items) ? [...input.items] : [];
-    const visitedMap = isPlainObject(input.visited) ? { ...input.visited } : {};
-    const visited = new Set(Object.keys(visitedMap));
-    let state = isPlainObject(input.state) ? { ...input.state } : {};
-    const contextValue = Object.prototype.hasOwnProperty.call(input, 'context') ? input.context : undefined;
-
-    const maxIterations = Number.isFinite(input.maxIterations) && input.maxIterations > 0
-      ? Math.trunc(input.maxIterations)
-      : Number.POSITIVE_INFINITY;
-
-    const warnings = [];
-    let iterations = 0;
-
-    while (queue.length > 0) {
-      ctx.ensureNotCancelled();
-      if (iterations >= maxIterations) {
-        throw new Error(`queue/bfs exceeded maxIterations (${maxIterations})`);
-      }
-
-      const item = queue.shift();
-      const slotVars = {
-        index: iterations,
-        remaining: queue.length,
-        visitedCount: visited.size,
-        item,
-        state,
-        context: contextValue
-      };
-
-      let keyValue = null;
-      if (typeof ctx.runSlot === 'function') {
-        try {
-          const candidate = await ctx.runSlot(
-            'key',
-            { item, state, context: contextValue },
-            slotVars
-          );
-          if (typeof candidate === 'string' && candidate.length > 0) {
-            keyValue = candidate;
-          }
-        } catch (err) {
-          warnings.push(`queue/bfs key slot failed: ${err?.message || String(err)}`);
-        }
-      }
-
-      if (!keyValue) {
-        try {
-          keyValue = JSON.stringify(item);
-        } catch (err) {
-          warnings.push(`queue/bfs fallback key serialization failed: ${err?.message || String(err)}`);
-          keyValue = `${visitedKeyPrefix}${iterations}`;
-        }
-      }
-
-      if (visited.has(keyValue)) {
-        iterations += 1;
-        continue;
-      }
-      visited.add(keyValue);
-      visitedMap[keyValue] = true;
-
-      let processResult = {};
-      if (typeof ctx.runSlot === 'function') {
-        const result = await ctx.runSlot(
-          'process',
-          { item, state, context: contextValue },
-          slotVars
-        );
-        if (result && typeof result === 'object') {
-          processResult = result;
-        }
-      }
-
-      appendChildren(queue, processResult.children);
-      if (isPlainObject(processResult.state)) {
-        state = processResult.state;
-      }
-      collectWarnings(warnings, processResult.warnings);
-
-      iterations += 1;
-    }
-
-    return {
-      state,
-      visited: visitedMap,
-      warnings,
-      iterations
-    };
-  });
+  registry.register('lcod://contract/tooling/queue/bfs@1', queueBfsHelper);
+  registry.register('lcod://tooling/queue/bfs@0.1.0', queueBfsHelper);
 }
