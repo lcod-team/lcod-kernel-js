@@ -243,6 +243,55 @@ test('hash.to_key produces base64 digest with optional prefix', async () => {
   assert.ok(/^[A-Za-z0-9+/=]+$/.test(withoutPrefix.key));
 });
 
+test('jsonl.read parses entries', async () => {
+  const registry = createRegistry();
+  const ctx = new Context(registry);
+
+  const dir = await fs.mkdtemp(path.join(tmpdir(), 'lcod-jsonl-'));
+  const manifestPath = path.join(dir, 'manifest.jsonl');
+  await fs.writeFile(
+    manifestPath,
+    '{"type":"manifest","schema":"lcod-manifest/list@1"}\n' +
+      '{"type":"component","id":"lcod://example/foo@0.1.0"}\n' +
+      '{"type":"list","path":"nested.jsonl"}\n'
+  );
+
+  const result = await ctx.call('lcod://tooling/jsonl/read@0.1.0', {
+    path: manifestPath
+  });
+
+  assert.equal(result.entries.length, 3);
+  assert.equal(result.entries[1].type, 'component');
+  assert.equal(result.entries[2].path, 'nested.jsonl');
+  assert.deepEqual(result.warnings, []);
+
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test('jsonl.read collects warnings for invalid lines', async () => {
+  const registry = createRegistry();
+  const ctx = new Context(registry);
+
+  const dir = await fs.mkdtemp(path.join(tmpdir(), 'lcod-jsonl-'));
+  const manifestPath = path.join(dir, 'manifest.jsonl');
+  await fs.writeFile(
+    manifestPath,
+    '{"type":"manifest","schema":"lcod-manifest/list@1"}\n' +
+      'oops not json\n' +
+      '{"type":"component","id":"lcod://example/foo@0.1.0"}\n'
+  );
+
+  const result = await ctx.call('lcod://tooling/jsonl/read@0.1.0', {
+    path: manifestPath
+  });
+
+  assert.equal(result.entries.length, 2);
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0], /invalid JSONL entry/);
+
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
 test('queue.bfs traverses graph once per key', async () => {
   const registry = createRegistry();
   const ctx = new Context(registry);

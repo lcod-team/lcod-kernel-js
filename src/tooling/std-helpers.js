@@ -78,6 +78,45 @@ function collectWarnings(target, warnings) {
   }
 }
 
+async function jsonlReadHelper(_ctx, input = {}) {
+  const pathValue = typeof input.path === 'string' && input.path.length ? input.path : null;
+  const urlValue = typeof input.url === 'string' && input.url.length ? input.url : null;
+  if (!pathValue) {
+    if (urlValue) {
+      throw new Error('jsonl/read does not support url inputs yet');
+    }
+    throw new Error('jsonl/read requires `path`');
+  }
+
+  const encodingRaw = typeof input.encoding === 'string' && input.encoding.length ? input.encoding : 'utf8';
+  const normalizedEncoding = encodingRaw.toLowerCase();
+  if (normalizedEncoding !== 'utf8' && normalizedEncoding !== 'utf-8') {
+    throw new Error(`jsonl/read only supports utf-8 encoding (got ${encodingRaw})`);
+  }
+
+  let raw;
+  try {
+    raw = await fs.readFile(pathValue, { encoding: 'utf8' });
+  } catch (err) {
+    throw new Error(`jsonl/read failed to read ${pathValue}: ${err?.message || err}`);
+  }
+
+  const entries = [];
+  const warnings = [];
+  const lines = raw.split(/\r?\n/u);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line) continue;
+    try {
+      entries.push(JSON.parse(line));
+    } catch (err) {
+      warnings.push(`invalid JSONL entry at ${pathValue}:${index + 1}: ${err?.message || err}`);
+    }
+  }
+
+  return { entries, warnings };
+}
+
 const visitedKeyPrefix = 'item:';
 
 async function queueBfsHelper(ctx, input = {}) {
@@ -247,6 +286,9 @@ export function registerStdHelpers(registry) {
     const normalized = current ? path.normalize(current).replace(/\\/g, '/') : '';
     return { path: normalized };
   });
+  registry.register('lcod://contract/tooling/jsonl/read@1', jsonlReadHelper);
+  registry.register('lcod://contract/tooling/jsonl/read@1.0.0', jsonlReadHelper);
+  registry.register('lcod://tooling/jsonl/read@0.1.0', jsonlReadHelper);
 
   registry.register('lcod://contract/tooling/fs/read_optional@1', async (_ctx, input = {}) => {
     const encoding = toNonEmptyString(input.encoding) || 'utf-8';
