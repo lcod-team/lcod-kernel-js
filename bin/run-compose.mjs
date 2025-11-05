@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
+import https from 'node:https';
 import YAML from 'yaml';
 import TOML from '@iarna/toml';
 import { Registry, Context, createCancellationToken, ExecutionCancelledError } from '../src/registry.js';
@@ -17,6 +20,10 @@ import { loadModulesFromMap } from '../src/loaders.js';
 import { registerNodeCore, registerNodeResolverAxioms } from '../src/core/index.js';
 import { registerTooling } from '../src/tooling/index.js';
 import { registerHttpContracts } from '../src/http/index.js';
+
+const DEFAULT_CATALOGUE_URL = 'https://raw.githubusercontent.com/lcod-team/lcod-components/main/registry/components.std.jsonl';
+const DEFAULT_COMPONENTS_REPO = 'https://github.com/lcod-team/lcod-components';
+const CATALOGUE_TTL_MS = 24 * 60 * 60 * 1000;
 
 function parseArgs(argv) {
   const args = {
@@ -71,6 +78,18 @@ function parseDuration(value) {
 }
 
 function readJson(p) { return JSON.parse(fs.readFileSync(p, 'utf8')); }
+
+function loadStateArg(raw) {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    return {};
+  }
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('{')) {
+    return JSON.parse(raw);
+  }
+  const resolved = path.resolve(process.cwd(), raw);
+  return readJson(resolved);
+}
 
 function loadComposeFile(p) {
   const text = fs.readFileSync(p, 'utf8');
@@ -185,6 +204,20 @@ function canonicalizeId(raw, context) {
   return `lcod://${parts.join('/')}` + `@${version}`;
 }
 
+function registerFlowBlocks(reg) {
+  reg.register('lcod://flow/if@1', flowIf);
+  reg.register('lcod://flow/foreach@1', flowForeach);
+  reg.register('lcod://flow/parallel@1', flowParallel);
+  reg.register('lcod://flow/try@1', flowTry);
+  reg.register('lcod://flow/throw@1', flowThrow);
+  if (flowBreak) reg.register('lcod://flow/break@1', flowBreak);
+  if (flowContinue) reg.register('lcod://flow/continue@1', flowContinue);
+}
+
+function isLcodIdentifier(value) {
+  return typeof value === 'string' && value.startsWith('lcod://');
+}
+
 function collectHttpHosts(root) {
   const hosts = [];
   const queue = [root];
@@ -219,6 +252,230 @@ async function stopHost(host) {
     await new Promise((resolve) => {
       host.server.close(() => resolve());
     });
+  }
+}
+
+async function resolveComponentCompose(ctx, componentId) {
+  try {
+    const result = await ctx.call('lcod://resolver/locate_component@0.1.0', { componentId });
+    if (result && result.found) {
+      const resolved = typeof result.result === 'object' && result.result !== null
+        ? result.result
+        : {};
+      const candidates = [
+        typeof resolved.composePath === 'string' ? resolved.composePath : null,
+        typeof resolved.compose?.path === 'string' ? resolved.compose.path : null
+      ].filter((value) => typeof value === 'string' && value.length > 0);
+      for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+          return { steps: loadComposeFile(candidate), path: candidate };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`Resolver locate_component failed for ${componentId}: ${err?.message || err}`);
+  }
+
+  try {
+    const fallbackPath = await fallbackResolveComponent(componentId);
+    return { steps: loadComposeFile(fallbackPath), path: fallbackPath };
+  } catch (err) {
+    throw new Error(`Failed to resolve component ${componentId}: ${err?.message || err}`);
+  }
+}
+
+async function fallbackResolveComponent(componentId) {
+  const { key, version } = splitComponentId(componentId);
+  const cacheRoot = await cacheRootDir();
+  await fsp.mkdir(cacheRoot, { recursive: true });
+
+  const cataloguePath = await ensureCatalogueCached(cacheRoot);
+  const entry = await findCatalogueEntry(cataloguePath, componentId);
+  if (!entry) {
+    throw new Error(`Component ${componentId} not found in default catalogue`);
+  }
+
+  const safeKey = sanitizeComponentKey(key);
+  const componentDir = path.join(cacheRoot, 'components', safeKey, version);
+  await fsp.mkdir(componentDir, { recursive: true });
+
+  const composePath = path.join(componentDir, 'compose.yaml');
+  if (!(await fileExists(composePath))) {
+    const composeUrl = buildComponentUrl(entry, entry.compose);
+    if (!composeUrl) {
+      throw new Error(`Catalogue entry for ${componentId} missing compose path`);
+    }
+    await downloadUrlToPath(composeUrl, composePath);
+  }
+
+  const lcpPath = extractLcpPath(entry.lcp);
+  if (lcpPath) {
+    const target = path.join(componentDir, 'lcp.toml');
+    if (!(await fileExists(target))) {
+      const lcpUrl = buildComponentUrl(entry, lcpPath);
+      if (lcpUrl) {
+        await downloadUrlToPath(lcpUrl, target);
+      }
+    }
+  }
+
+  if (!(await fileExists(composePath))) {
+    throw new Error(`Component ${componentId} resolved via fallback but compose file missing`);
+  }
+  return composePath;
+}
+
+function extractLcpPath(field) {
+  if (!field) return null;
+  if (typeof field === 'string') return field;
+  if (typeof field === 'object') {
+    if (typeof field.path === 'string' && field.path.length > 0) return field.path;
+    if (typeof field.url === 'string' && field.url.length > 0) return field.url;
+  }
+  return null;
+}
+
+function splitComponentId(componentId) {
+  if (typeof componentId !== 'string' || !componentId.startsWith('lcod://')) {
+    throw new Error('component id must start with lcod://');
+  }
+  const trimmed = componentId.slice('lcod://'.length);
+  const [identifier, version = '0.0.0'] = trimmed.split('@');
+  if (!identifier) {
+    throw new Error('component id missing identifier');
+  }
+  return { key: identifier, version };
+}
+
+function sanitizeComponentKey(key) {
+  return key.replace(/[^a-zA-Z0-9]/g, '_');
+}
+
+async function cacheRootDir() {
+  const home = os.homedir();
+  if (!home) {
+    throw new Error('Unable to locate home directory');
+  }
+  return path.join(home, '.lcod', 'cache');
+}
+
+async function ensureCatalogueCached(cacheRoot) {
+  const catalogueDir = path.join(cacheRoot, 'catalogues');
+  await fsp.mkdir(catalogueDir, { recursive: true });
+  const cataloguePath = path.join(catalogueDir, 'components.std.jsonl');
+  let shouldRefresh = true;
+  try {
+    const stat = await fsp.stat(cataloguePath);
+    const age = Date.now() - stat.mtimeMs;
+    if (Number.isFinite(age) && age <= CATALOGUE_TTL_MS) {
+      shouldRefresh = false;
+    }
+  } catch {}
+  if (shouldRefresh) {
+    await downloadUrlToPath(DEFAULT_CATALOGUE_URL, cataloguePath);
+  }
+  return cataloguePath;
+}
+
+async function findCatalogueEntry(cataloguePath, componentId) {
+  const raw = await fsp.readFile(cataloguePath, 'utf8');
+  const lines = raw.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const entry = JSON.parse(trimmed);
+      if (entry && entry.id === componentId) {
+        return entry;
+      }
+    } catch {
+      // ignore malformed line
+    }
+  }
+  return null;
+}
+
+function buildComponentUrl(entry, manifestPath) {
+  if (typeof manifestPath !== 'string' || !manifestPath) {
+    return null;
+  }
+  const cleaned = manifestPath.trim().replace(/^\.\//, '');
+  if (!cleaned) return null;
+  const origin = entry && typeof entry.origin === 'object' ? entry.origin : {};
+  const sourceRepo = origin.source_repo || origin.sourceRepo || DEFAULT_COMPONENTS_REPO;
+  const commit = origin.commit || 'main';
+  const rawBase = repoToRawBase(sourceRepo, commit);
+  return `${rawBase}${cleaned}`;
+}
+
+function repoToRawBase(repo, commit) {
+  if (typeof repo !== 'string' || !repo) {
+    throw new Error('Repository URL missing from catalogue entry');
+  }
+  const normalized = repo.replace(/\/+$/, '');
+  let suffix = normalized;
+  if (normalized.startsWith('https://github.com/')) {
+    suffix = normalized.slice('https://github.com/'.length);
+  }
+  if (!/^[^/]+\/[^/]+$/.test(suffix)) {
+    throw new Error(`Unsupported repository URL: ${repo}`);
+  }
+  return `https://raw.githubusercontent.com/${suffix}/${commit}/`;
+}
+
+async function downloadUrlToPath(url, targetPath) {
+  const buffer = await fetchBuffer(url);
+  await fsp.mkdir(path.dirname(targetPath), { recursive: true });
+  await fsp.writeFile(targetPath, buffer);
+}
+
+async function fetchBuffer(url, redirectCount = 0) {
+  const MAX_REDIRECTS = 5;
+  if (typeof fetch === 'function') {
+    const response = await fetch(url);
+    if (response.status >= 300 && response.status < 400 && response.headers.get('location') && redirectCount < MAX_REDIRECTS) {
+      const next = new URL(response.headers.get('location'), url).toString();
+      if (typeof response.body?.cancel === 'function') {
+        response.body.cancel().catch(() => {});
+      }
+      return fetchBuffer(next, redirectCount + 1);
+    }
+    if (!response.ok) {
+      throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+  if (redirectCount >= MAX_REDIRECTS) {
+    throw new Error(`Too many redirects while downloading ${url}`);
+  }
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, (res) => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        const next = new URL(res.headers.location, url).toString();
+        res.resume();
+        fetchBuffer(next, redirectCount + 1).then(resolve).catch(reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error(`Failed to download ${url}: HTTP ${res.statusCode}`));
+        res.resume();
+        return;
+      }
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+    request.on('error', reject);
+  });
+}
+
+async function fileExists(targetPath) {
+  try {
+    const stat = await fsp.stat(targetPath);
+    return stat.isFile();
+  } catch {
+    return false;
   }
 }
 
@@ -257,34 +514,21 @@ async function main() {
     console.error('Usage: run-compose --compose path/to/compose.yaml [--demo] [--resolver] [--sources sources.json] [--state state.json]');
     process.exit(2);
   }
-  const composePath = path.resolve(process.cwd(), args.compose);
-  const compose = loadComposeFile(composePath);
   const reg = new Registry();
   registerHttpContracts(reg);
   if (args.core) {
     registerNodeCore(reg);
-    reg.register('lcod://flow/if@1', flowIf);
-    reg.register('lcod://flow/foreach@1', flowForeach);
-    reg.register('lcod://flow/parallel@1', flowParallel);
-    reg.register('lcod://flow/try@1', flowTry);
-    reg.register('lcod://flow/throw@1', flowThrow);
-    if (flowBreak) reg.register('lcod://flow/break@1', flowBreak);
-    if (flowContinue) reg.register('lcod://flow/continue@1', flowContinue);
+    registerFlowBlocks(reg);
   }
   if (args.demo) {
     registerDemoAxioms(reg);
     // Register built-in flow blocks for demo usage
     if (!args.core) {
-      reg.register('lcod://flow/if@1', flowIf);
-      reg.register('lcod://flow/foreach@1', flowForeach);
-      reg.register('lcod://flow/parallel@1', flowParallel);
-      reg.register('lcod://flow/try@1', flowTry);
-      reg.register('lcod://flow/throw@1', flowThrow);
-      if (flowBreak) reg.register('lcod://flow/break@1', flowBreak);
-      if (flowContinue) reg.register('lcod://flow/continue@1', flowContinue);
+      registerFlowBlocks(reg);
     }
   }
-  if (args.resolver) {
+  const needsResolverAxioms = args.resolver || isLcodIdentifier(args.compose);
+  if (needsResolverAxioms) {
     registerNodeResolverAxioms(reg);
   }
   registerTooling(reg);
@@ -298,7 +542,15 @@ async function main() {
     reg.setBindings(bindings);
   }
   const ctx = new Context(reg, { cancellation });
-  let initial = args.state ? readJson(path.resolve(process.cwd(), args.state)) : {};
+  let compose;
+  if (isLcodIdentifier(args.compose)) {
+    const resolved = await resolveComponentCompose(ctx, args.compose);
+    compose = resolved.steps;
+  } else {
+    const composePath = path.resolve(process.cwd(), args.compose);
+    compose = loadComposeFile(composePath);
+  }
+  let initial = args.state ? loadStateArg(args.state) : {};
   if (args.resolver) {
     const state = { ...initial };
     const resolvedProject = args.project

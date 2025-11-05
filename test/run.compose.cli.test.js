@@ -123,3 +123,39 @@ test('run-compose resolver CLI wires project/output/cache flags', async (t) => {
     await fs.rm(tempProject, { recursive: true, force: true });
   }
 });
+
+test('run-compose resolves lcod identifiers with inline state', async (t) => {
+  const repoRoot = path.resolve(__dirname, '..');
+  const specRoot = await resolveSpecRoot();
+  if (!specRoot) {
+    t.skip('spec repository unavailable');
+    return;
+  }
+  const resolverComposePath = await resolveResolverComposePath({ required: false });
+  if (!resolverComposePath) {
+    t.skip('resolver compose.yaml unavailable');
+    return;
+  }
+
+  const env = { ...process.env, SPEC_REPO_PATH: specRoot };
+  const resolverRoot = path.resolve(resolverComposePath, '..', '..', '..');
+  env.LCOD_RESOLVER_PATH = resolverRoot;
+  env.LCOD_RESOLVER_COMPONENTS_PATH = path.join(
+    resolverRoot,
+    'packages',
+    'resolver',
+    'components'
+  );
+
+  const { stdout } = await execFileAsync('node', [
+    'bin/run-compose.mjs',
+    '--compose',
+    'lcod://tooling/json/decode_object@0.1.0',
+    '--core',
+    '--state',
+    '{"text":"{\\"ok\\":true}"}'
+  ], { cwd: repoRoot, env });
+
+  const result = JSON.parse(stdout);
+  assert.deepEqual(result.value, { ok: true });
+});
