@@ -359,7 +359,39 @@ async function cacheRootDir() {
   return path.join(home, '.lcod', 'cache');
 }
 
+async function manifestFromRoot(root) {
+  if (!root) return null;
+  const direct = path.join(root, 'manifest.jsonl');
+  if (await fileExists(direct)) {
+    return direct;
+  }
+  const nested = path.join(root, 'runtime', 'manifest.jsonl');
+  if (await fileExists(nested)) {
+    return nested;
+  }
+  return null;
+}
+
+async function runtimeManifestFromEnv() {
+  const candidates = [];
+  if (process.env.LCOD_HOME) candidates.push(process.env.LCOD_HOME);
+  if (process.env.SPEC_REPO_PATH) candidates.push(process.env.SPEC_REPO_PATH);
+  if (process.env.LCOD_COMPONENTS_PATH) candidates.push(process.env.LCOD_COMPONENTS_PATH);
+  for (const candidate of candidates) {
+    const manifest = await manifestFromRoot(candidate);
+    if (manifest) {
+      return manifest;
+    }
+  }
+  return null;
+}
+
 async function ensureCatalogueCached(cacheRoot) {
+  const localManifest = await runtimeManifestFromEnv();
+  if (localManifest) {
+    return localManifest;
+  }
+
   const catalogueDir = path.join(cacheRoot, 'catalogues');
   await fsp.mkdir(catalogueDir, { recursive: true });
   const cataloguePath = path.join(catalogueDir, 'components.std.jsonl');
