@@ -213,11 +213,14 @@ async function queueBfsHelper(ctx, input = {}) {
 }
 
 export function registerStdHelpers(registry) {
-  registry.register('lcod://contract/tooling/value/is_defined@1', async (_ctx, input = {}) => {
+  const valueIsDefined = async (_ctx, input = {}) => {
     const hasKey = Object.prototype.hasOwnProperty.call(input, 'value');
     const ok = hasKey && isDefined(input.value);
     return { ok };
-  });
+  };
+
+  registry.register('lcod://contract/tooling/value/is_defined@1', valueIsDefined);
+  registry.register('lcod://tooling/value/is_defined@0.1.0', valueIsDefined);
 
   registry.register('lcod://contract/tooling/string/ensure_trailing_newline@1', async (_ctx, input = {}) => {
     const text = typeof input.text === 'string' ? input.text : '';
