@@ -213,13 +213,16 @@ async function queueBfsHelper(ctx, input = {}) {
 }
 
 export function registerStdHelpers(registry) {
-  registry.register('lcod://contract/tooling/value/is_defined@1', async (_ctx, input = {}) => {
+  const valueIsDefined = async (_ctx, input = {}) => {
     const hasKey = Object.prototype.hasOwnProperty.call(input, 'value');
     const ok = hasKey && isDefined(input.value);
     return { ok };
-  });
+  };
 
-  registry.register('lcod://contract/tooling/string/ensure_trailing_newline@1', async (_ctx, input = {}) => {
+  registry.register('lcod://contract/tooling/value/is_defined@1', valueIsDefined);
+  registry.register('lcod://tooling/value/is_defined@0.1.0', valueIsDefined);
+
+  const ensureTrailingNewline = async (_ctx, input = {}) => {
     const text = typeof input.text === 'string' ? input.text : '';
     const newline =
       typeof input.newline === 'string' && input.newline.length > 0 ? input.newline : '\n';
@@ -227,15 +230,20 @@ export function registerStdHelpers(registry) {
       return { text };
     }
     return { text: `${text}${newline}` };
-  });
+  };
 
-  registry.register('lcod://contract/tooling/array/compact@1', async (_ctx, input = {}) => {
+  registry.register('lcod://contract/tooling/string/ensure_trailing_newline@1', ensureTrailingNewline);
+  registry.register('lcod://tooling/string/ensure_trailing_newline@0.1.0', ensureTrailingNewline);
+
+  const arrayCompact = async (_ctx, input = {}) => {
     const source = Array.isArray(input.items) ? input.items : [];
     const values = source.filter((item) => item !== null && item !== undefined);
     return { values };
-  });
+  };
+  registry.register('lcod://contract/tooling/array/compact@1', arrayCompact);
+  registry.register('lcod://tooling/array/compact@0.1.0', arrayCompact);
 
-  registry.register('lcod://contract/tooling/array/flatten@1', async (_ctx, input = {}) => {
+  const arrayFlatten = async (_ctx, input = {}) => {
     const source = Array.isArray(input.items) ? input.items : [];
     const values = [];
     for (const entry of source) {
@@ -246,9 +254,11 @@ export function registerStdHelpers(registry) {
       }
     }
     return { values };
-  });
+  };
+  registry.register('lcod://contract/tooling/array/flatten@1', arrayFlatten);
+  registry.register('lcod://tooling/array/flatten@0.1.0', arrayFlatten);
 
-  registry.register('lcod://contract/tooling/array/find_duplicates@1', async (_ctx, input = {}) => {
+  const arrayFindDuplicates = async (_ctx, input = {}) => {
     const source = Array.isArray(input.items) ? input.items : [];
     const seen = new Set();
     const duplicates = new Set();
@@ -261,9 +271,11 @@ export function registerStdHelpers(registry) {
       }
     }
     return { duplicates: Array.from(duplicates) };
-  });
+  };
+  registry.register('lcod://contract/tooling/array/find_duplicates@1', arrayFindDuplicates);
+  registry.register('lcod://tooling/array/find_duplicates@0.1.0', arrayFindDuplicates);
 
-  registry.register('lcod://contract/tooling/array/append@1', async (_ctx, input = {}) => {
+  const arrayAppend = async (_ctx, input = {}) => {
     const base = Array.isArray(input.items) ? [...input.items] : [];
     if (Array.isArray(input.values)) {
       base.push(...input.values);
@@ -272,9 +284,11 @@ export function registerStdHelpers(registry) {
       base.push(input.value);
     }
     return { items: base, length: base.length };
-  });
+  };
+  registry.register('lcod://contract/tooling/array/append@1', arrayAppend);
+  registry.register('lcod://tooling/array/append@0.1.0', arrayAppend);
 
-  registry.register('lcod://contract/tooling/path/join_chain@1', async (_ctx, input = {}) => {
+  const pathJoinChain = async (_ctx, input = {}) => {
     let current = typeof input.base === 'string' && input.base.length > 0 ? input.base : '';
     const segments = Array.isArray(input.segments) ? input.segments : [];
     for (const segment of segments) {
@@ -285,7 +299,9 @@ export function registerStdHelpers(registry) {
     }
     const normalized = current ? path.normalize(current).replace(/\\/g, '/') : '';
     return { path: normalized };
-  });
+  };
+  registry.register('lcod://contract/tooling/path/join_chain@1', pathJoinChain);
+  registry.register('lcod://tooling/path/join_chain@0.1.0', pathJoinChain);
   registry.register('lcod://contract/tooling/jsonl/read@1', jsonlReadHelper);
   registry.register('lcod://contract/tooling/jsonl/read@1.0.0', jsonlReadHelper);
   registry.register('lcod://tooling/jsonl/read@0.1.0', jsonlReadHelper);
@@ -410,21 +426,25 @@ export function registerStdHelpers(registry) {
     return { hasKey: false, value: undefined };
   });
 
-  registry.register('lcod://tooling/json/stable_stringify@0.1.0', async (_ctx, input = {}) => {
+  const jsonStableStringify = async (_ctx, input = {}) => {
     try {
       const text = stableStringify(input.value);
       return { text, warning: null };
     } catch (err) {
       return { text: null, warning: err?.message || String(err) };
     }
-  });
+  };
+  registry.register('lcod://contract/tooling/json/stable_stringify@1', jsonStableStringify);
+  registry.register('lcod://tooling/json/stable_stringify@0.1.0', jsonStableStringify);
 
-  registry.register('lcod://tooling/hash/to_key@0.1.0', async (_ctx, input = {}) => {
+  const hashToKey = async (_ctx, input = {}) => {
     const text = typeof input.text === 'string' ? input.text : '';
     const prefix = typeof input.prefix === 'string' ? input.prefix : '';
     const key = createHashKey(text, prefix);
     return { key };
-  });
+  };
+  registry.register('lcod://contract/tooling/hash/to_key@1', hashToKey);
+  registry.register('lcod://tooling/hash/to_key@0.1.0', hashToKey);
 
   registry.register('lcod://contract/tooling/queue/bfs@1', queueBfsHelper);
   registry.register('lcod://tooling/queue/bfs@0.1.0', queueBfsHelper);

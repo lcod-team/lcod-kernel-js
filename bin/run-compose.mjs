@@ -285,6 +285,10 @@ async function resolveComponentCompose(ctx, componentId) {
 }
 
 async function fallbackResolveComponent(componentId) {
+  const specLocal = await resolveComponentFromSpecRepo(componentId).catch(() => null);
+  if (specLocal) {
+    return specLocal;
+  }
   const { key, version } = splitComponentId(componentId);
   const cacheRoot = await cacheRootDir();
   await fsp.mkdir(cacheRoot, { recursive: true });
@@ -323,6 +327,28 @@ async function fallbackResolveComponent(componentId) {
     throw new Error(`Component ${componentId} resolved via fallback but compose file missing`);
   }
   return composePath;
+}
+
+async function resolveComponentFromSpecRepo(componentId) {
+  const specRoot = process.env.SPEC_REPO_PATH
+    ? path.resolve(process.env.SPEC_REPO_PATH)
+    : null;
+  if (!specRoot) {
+    return null;
+  }
+  const { key } = splitComponentId(componentId);
+  const segments = key
+    .split('/')
+    .flatMap((segment) => segment.split('.'))
+    .filter(Boolean);
+  if (segments.length === 0) {
+    return null;
+  }
+  const candidate = path.join(specRoot, ...segments, 'compose.yaml');
+  if (await fileExists(candidate)) {
+    return candidate;
+  }
+  return null;
 }
 
 function extractLcpPath(field) {

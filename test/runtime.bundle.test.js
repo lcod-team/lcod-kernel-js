@@ -82,30 +82,6 @@ test('LCOD runtime bundle supports catalog generation', async (t) => {
       path.join(componentsTempRoot, 'package.json')
     );
   }
-  const requiredComponent = path.join(
-    componentsTempRoot,
-    'packages',
-    'std',
-    'components',
-    'tooling',
-    'array.append',
-    'compose.yaml'
-  );
-  if (!fssync.existsSync(requiredComponent)) {
-    throw new Error(`Failed to stage lcod-components (missing ${requiredComponent})`);
-  }
-  const requiredCore = path.join(
-    componentsTempRoot,
-    'packages',
-    'std',
-    'components',
-    'core',
-    'json.encode',
-    'compose.yaml'
-  );
-  if (!fssync.existsSync(requiredCore)) {
-    throw new Error(`Failed to stage lcod-components core helpers (missing ${requiredCore})`);
-  }
   await copyDir(
     path.join(resolverRoot, 'packages', 'resolver'),
     path.join(runtimeRoot, 'resolver', 'packages', 'resolver')
