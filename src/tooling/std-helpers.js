@@ -222,7 +222,7 @@ export function registerStdHelpers(registry) {
   registry.register('lcod://contract/tooling/value/is_defined@1', valueIsDefined);
   registry.register('lcod://tooling/value/is_defined@0.1.0', valueIsDefined);
 
-  registry.register('lcod://contract/tooling/string/ensure_trailing_newline@1', async (_ctx, input = {}) => {
+  const ensureTrailingNewline = async (_ctx, input = {}) => {
     const text = typeof input.text === 'string' ? input.text : '';
     const newline =
       typeof input.newline === 'string' && input.newline.length > 0 ? input.newline : '\n';
@@ -230,7 +230,10 @@ export function registerStdHelpers(registry) {
       return { text };
     }
     return { text: `${text}${newline}` };
-  });
+  };
+
+  registry.register('lcod://contract/tooling/string/ensure_trailing_newline@1', ensureTrailingNewline);
+  registry.register('lcod://tooling/string/ensure_trailing_newline@0.1.0', ensureTrailingNewline);
 
   registry.register('lcod://contract/tooling/array/compact@1', async (_ctx, input = {}) => {
     const source = Array.isArray(input.items) ? input.items : [];
