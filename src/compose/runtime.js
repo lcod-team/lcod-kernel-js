@@ -251,9 +251,13 @@ export async function runSteps(ctx, steps, state, slot) {
     };
     ctx.runSlot = async (name, localState, slotVars) => {
       ctx.ensureNotCancelled();
+      const hasLocalSlot = slotExists(slotMap, name);
       const arr = resolveSlotSteps(slotMap, name);
       const baseState = localState == null ? cur : localState;
       if (!arr || arr.length === 0) {
+        if (hasLocalSlot) {
+          return {};
+        }
         const hasParentHandler = typeof prevRunSlot === 'function' && prevRunSlot !== ctx._defaultRunSlot;
         if (hasParentHandler) {
           return prevRunSlot(name, localState, slotVars);
@@ -379,4 +383,12 @@ export async function runSteps(ctx, steps, state, slot) {
     }
   }
   return cur;
+}
+
+function slotExists(slotMap, name) {
+  if (!slotMap) return false;
+  if (Object.prototype.hasOwnProperty.call(slotMap, name)) return true;
+  if (name === 'children' && Object.prototype.hasOwnProperty.call(slotMap, 'body')) return true;
+  if (name === 'body' && Object.prototype.hasOwnProperty.call(slotMap, 'children')) return true;
+  return false;
 }
