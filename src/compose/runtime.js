@@ -254,7 +254,8 @@ export async function runSteps(ctx, steps, state, slot) {
       const arr = resolveSlotSteps(slotMap, name);
       const baseState = localState == null ? cur : localState;
       if (!arr || arr.length === 0) {
-        if (typeof prevRunSlot === 'function') {
+        const hasParentHandler = typeof prevRunSlot === 'function' && prevRunSlot !== ctx._defaultRunSlot;
+        if (hasParentHandler) {
           return prevRunSlot(name, localState, slotVars);
         }
         throw new Error(`Slot "${name}" not provided`);

@@ -27,7 +27,14 @@ export async function flowForeach(ctx, input, meta) {
   const list = await toArray(input?.list ?? input?.stream);
   const results = [];
   if (list.length === 0) {
-    const elseState = await ctx.runSlot('else', undefined, { item: undefined, index: -1 });
+    let elseState = {};
+    try {
+      elseState = await ctx.runSlot('else', undefined, { item: undefined, index: -1 });
+    } catch (err) {
+      if (!isSlotMissingError(err)) {
+        throw err;
+      }
+    }
     if (meta && meta.collectPath) {
       const val = getByPathRoot({ $: elseState, $slot: { item: undefined, index: -1 } }, meta.collectPath);
       if (typeof val !== 'undefined') results.push(val);
@@ -57,4 +64,11 @@ export async function flowForeach(ctx, input, meta) {
     }
   }
   return { results };
+}
+
+function isSlotMissingError(error) {
+  if (!error) return false;
+  const msg = error?.message;
+  if (typeof msg !== 'string') return false;
+  return msg.includes('Slot "') && msg.includes('not provided');
 }

@@ -49,6 +49,7 @@ export class Context {
     this.streams = new StreamManager();
     this.runChildren = async (_childrenArray, _localState, _slotVars) => { throw new Error('runChildren not available in this context'); };
     this.runSlot = async (_slotName, _localState, _slotVars) => { throw new Error('runSlot not available in this context'); };
+    this._defaultRunSlot = this.runSlot;
     // Cleanup scopes for resources
     this._scopeStack = [];
     this._registryScopeStack = [];
@@ -236,6 +237,11 @@ function sanitizeComponentInput(input, metadata) {
     sanitized[key] = Object.prototype.hasOwnProperty.call(baseClone, key)
       ? baseClone[key]
       : null;
+  }
+  for (const [key, value] of Object.entries(baseClone)) {
+    if (!Object.prototype.hasOwnProperty.call(sanitized, key)) {
+      sanitized[key] = value;
+    }
   }
   return sanitized;
 }
