@@ -5,8 +5,10 @@ import { registerRegistryScope } from './registry-scope.js';
 import { registerLogging, logKernelWarn } from './logging.js';
 import { registerRegistryComponents } from './registry-components.js';
 import { registerStdHelpers } from './std-helpers.js';
+import { registerComposeContracts } from '../compose/register.js';
 
 export function registerTooling(registry) {
+  registerComposeContracts(registry);
   registerTestChecker(registry);
   registerScriptContract(registry);
   registerResolverHelpers(registry);

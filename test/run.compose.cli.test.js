@@ -157,5 +157,10 @@ test('run-compose resolves lcod identifiers with inline state', async (t) => {
   ], { cwd: repoRoot, env });
 
   const result = JSON.parse(stdout);
-  assert.deepEqual(result.value, { ok: true });
+  assert.deepEqual(result, {
+    value: { ok: true },
+    warnings: [],
+    error: null
+  });
+  assert.ok(!Object.prototype.hasOwnProperty.call(result, 'text'));
 });

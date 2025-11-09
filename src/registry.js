@@ -1,12 +1,23 @@
 // Simple function registry and context
 
+const RAW_INPUT_KEY = '__lcod_input__';
+
 export class Registry {
   constructor() {
     this.funcs = new Map();
     this.bindings = {}; // contractId -> implId
   }
   register(name, fn, opts = {}) {
-    const entry = { fn, inputSchema: opts.inputSchema, outputSchema: opts.outputSchema, implements: opts.implements };
+    const metadata = normalizeMetadata(opts.metadata);
+    const outputs = normalizeOutputs(opts.outputs, metadata);
+    const entry = {
+      fn,
+      inputSchema: opts.inputSchema,
+      outputSchema: opts.outputSchema,
+      implements: opts.implements,
+      outputs,
+      metadata
+    };
     this.funcs.set(name, entry);
     return this;
   }
@@ -112,16 +123,23 @@ export class Context {
       throw new Error(`Func not found: ${name}`);
     }
 
-    const { fn, inputSchema, outputSchema } = entry;
+    const { fn, inputSchema, outputSchema, metadata } = entry;
+    let preparedInput = dataIn;
+    if (metadata && metadata.inputs.length > 0) {
+      preparedInput = sanitizeComponentInput(dataIn, metadata);
+    }
     if (inputSchema) {
       const validate = await getValidator(inputSchema);
-      const ok = validate(dataIn);
+      const ok = validate(preparedInput);
       if (!ok) {
         const msg = (validate.errors || []).map(e => `${e.instancePath} ${e.message}`).join('; ');
         throw new Error(`Input validation failed for ${name}: ${msg}`);
       }
     }
-    const out = await fn(this, dataIn, meta);
+    let out = await fn(this, preparedInput, meta);
+    if (Array.isArray(entry.outputs) && entry.outputs.length > 0) {
+      out = filterOutputs(out, entry.outputs);
+    }
     if (outputSchema) {
       const validate = await getValidator(outputSchema);
       const ok = validate(out);
@@ -164,4 +182,74 @@ export class Context {
       }
     }
   }
+}
+
+function filterOutputs(state, outputs) {
+  if (!outputs || outputs.length === 0) return state;
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return state;
+  const trimmed = {};
+  for (const key of outputs) {
+    trimmed[key] = Object.prototype.hasOwnProperty.call(state, key) ? state[key] : null;
+  }
+  return trimmed;
+}
+
+function normalizeOutputs(rawOutputs, metadata) {
+  if (Array.isArray(rawOutputs) && rawOutputs.length > 0) {
+    return dedupeStrings(rawOutputs);
+  }
+  if (metadata && metadata.outputs.length > 0) {
+    return [...metadata.outputs];
+  }
+  return null;
+}
+
+function normalizeMetadata(meta) {
+  if (!meta || typeof meta !== 'object') {
+    return null;
+  }
+  const inputs = Array.isArray(meta.inputs) ? dedupeStrings(meta.inputs) : [];
+  const outputs = Array.isArray(meta.outputs) ? dedupeStrings(meta.outputs) : [];
+  const slots = Array.isArray(meta.slots) ? dedupeStrings(meta.slots) : [];
+  if (!inputs.length && !outputs.length && !slots.length) {
+    return null;
+  }
+  return { inputs, outputs, slots };
+}
+
+function dedupeStrings(list) {
+  return [...new Set(list.filter((item) => typeof item === 'string' && item.length > 0))];
+}
+
+function sanitizeComponentInput(input, metadata) {
+  if (!metadata || !metadata.inputs || metadata.inputs.length === 0) {
+    return input ?? {};
+  }
+  const source = (input && typeof input === 'object' && !Array.isArray(input))
+    ? input
+    : { value: input };
+  const baseClone = cloneJson(source);
+  const sanitized = {};
+  sanitized[RAW_INPUT_KEY] = baseClone;
+  sanitized.value = cloneJson(baseClone);
+  for (const key of metadata.inputs) {
+    sanitized[key] = Object.prototype.hasOwnProperty.call(baseClone, key)
+      ? baseClone[key]
+      : null;
+  }
+  return sanitized;
+}
+
+function cloneJson(value) {
+  if (Array.isArray(value)) {
+    return value.map(cloneJson);
+  }
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = cloneJson(v);
+    }
+    return out;
+  }
+  return value;
 }

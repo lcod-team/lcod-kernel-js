@@ -4,6 +4,7 @@ import * as fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import https from 'node:https';
+import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import TOML from '@iarna/toml';
 import { Registry, Context, createCancellationToken, ExecutionCancelledError } from '../src/registry.js';
@@ -268,8 +269,14 @@ async function resolveComponentCompose(ctx, componentId) {
       ].filter((value) => typeof value === 'string' && value.length > 0);
       for (const candidate of candidates) {
         if (fs.existsSync(candidate)) {
-          return { steps: loadComposeFile(candidate), path: candidate };
+          const metadata = await loadManifestMetadata(candidate);
+          return { steps: loadComposeFile(candidate), path: candidate, metadata };
         }
+      }
+      const specCandidate = await resolveComponentFromSpec(componentId);
+      if (specCandidate) {
+        const metadata = await loadManifestMetadata(specCandidate);
+        return { steps: loadComposeFile(specCandidate), path: specCandidate, metadata };
       }
     }
   } catch (err) {
@@ -278,10 +285,93 @@ async function resolveComponentCompose(ctx, componentId) {
 
   try {
     const fallbackPath = await fallbackResolveComponent(componentId);
-    return { steps: loadComposeFile(fallbackPath), path: fallbackPath };
+    const metadata = await loadManifestMetadata(fallbackPath);
+    return { steps: loadComposeFile(fallbackPath), path: fallbackPath, metadata };
   } catch (err) {
     throw new Error(`Failed to resolve component ${componentId}: ${err?.message || err}`);
   }
+}
+
+async function resolveComponentFromSpec(componentId) {
+  const { key } = splitComponentId(componentId);
+  const segments = key.split('/').filter(Boolean);
+  if (segments.length === 0) {
+    return null;
+  }
+
+  const candidates = [];
+  if (process.env.SPEC_REPO_PATH) {
+    candidates.push(path.resolve(process.cwd(), process.env.SPEC_REPO_PATH));
+  }
+  if (process.env.LCOD_HOME) {
+    candidates.push(path.resolve(process.cwd(), process.env.LCOD_HOME));
+  }
+  const repoRootCandidate = path.resolve(process.cwd(), '..', 'lcod-spec');
+  candidates.push(repoRootCandidate);
+  const siblingCandidate = path.resolve(process.cwd(), '..', '..', 'lcod-spec');
+  candidates.push(siblingCandidate);
+
+  for (const root of candidates) {
+    if (!root) continue;
+    const composeCandidate = path.join(root, ...segments, 'compose.yaml');
+    if (await fileExists(composeCandidate)) {
+      return composeCandidate;
+    }
+  }
+  return null;
+}
+
+async function loadManifestMetadata(composePath) {
+  if (!composePath) return null;
+  const manifestPath = path.join(path.dirname(composePath), 'lcp.toml');
+  try {
+    const raw = await fsp.readFile(manifestPath, 'utf8');
+    const manifest = TOML.parse(raw);
+    const inputs = manifest && typeof manifest.inputs === 'object'
+      ? Object.keys(manifest.inputs)
+      : [];
+    const outputs = manifest && typeof manifest.outputs === 'object'
+      ? Object.keys(manifest.outputs)
+      : [];
+    if (!inputs.length && !outputs.length) {
+      return null;
+    }
+    return { inputs, outputs };
+  } catch {
+    return null;
+  }
+}
+
+function ensureObjectState(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return { state: { ...value }, wrapped: false };
+  }
+  return { state: { input: value }, wrapped: true };
+}
+
+function sanitizeInputState(state, metadata) {
+  if (!metadata || !Array.isArray(metadata.inputs) || metadata.inputs.length === 0) {
+    return { ...state };
+  }
+  const sanitized = {};
+  for (const key of metadata.inputs) {
+    sanitized[key] = Object.prototype.hasOwnProperty.call(state, key) ? state[key] : null;
+  }
+  return sanitized;
+}
+
+function projectOutputs(result, metadata) {
+  if (!metadata || !Array.isArray(metadata.outputs) || metadata.outputs.length === 0) {
+    return result;
+  }
+  const source = result && typeof result === 'object' && !Array.isArray(result)
+    ? result
+    : { value: result };
+  const projected = {};
+  for (const key of metadata.outputs) {
+    projected[key] = Object.prototype.hasOwnProperty.call(source, key) ? source[key] : null;
+  }
+  return projected;
 }
 
 async function fallbackResolveComponent(componentId) {
@@ -601,12 +691,15 @@ async function main() {
   }
   const ctx = new Context(reg, { cancellation });
   let compose;
+  let metadata = null;
   if (isLcodIdentifier(args.compose)) {
     const resolved = await resolveComponentCompose(ctx, args.compose);
     compose = resolved.steps;
+    metadata = resolved.metadata ?? null;
   } else {
     const composePath = path.resolve(process.cwd(), args.compose);
     compose = loadComposeFile(composePath);
+    metadata = await loadManifestMetadata(composePath);
   }
   let initial = args.state ? loadStateArg(args.state) : {};
   if (args.resolver) {
@@ -634,8 +727,13 @@ async function main() {
     initial = state;
   }
   let result;
+  const { state: normalizedState, wrapped } = ensureObjectState(initial);
+  if (wrapped) {
+    console.warn('Input payload is not an object; wrapping under {"input": ...}');
+  }
+  const sanitizedState = sanitizeInputState(normalizedState, metadata);
   try {
-    result = await runCompose(ctx, compose, initial);
+    result = await runCompose(ctx, compose, sanitizedState);
   } catch (err) {
     if (err instanceof ExecutionCancelledError) {
       console.error('Execution cancelled');
@@ -643,7 +741,8 @@ async function main() {
     }
     throw err;
   }
-  console.log(JSON.stringify(result, null, 2));
+  const projectedResult = projectOutputs(result, metadata);
+  console.log(JSON.stringify(projectedResult, null, 2));
 
   const hosts = collectHttpHosts(result);
   if (!hosts.length) return;
@@ -666,4 +765,11 @@ async function main() {
   }
 }
 
-main().catch(err => { console.error(err.stack || String(err)); process.exit(1); });
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch(err => {
+    console.error(err.stack || String(err));
+    process.exit(1);
+  });
+}
+
+export { resolveComponentCompose, loadManifestMetadata };

@@ -14,6 +14,81 @@ const repoRoot = path.resolve(moduleDir, '..', '..');
 let helperDefsCache = null;
 const cache = new Map();
 
+function extractManifestKeys(section) {
+  if (!section || typeof section !== 'object' || section === null) {
+    return [];
+  }
+  return Object.keys(section);
+}
+
+function loadComponentMetadata(manifestPath) {
+  try {
+    const manifest = parseToml(fs.readFileSync(manifestPath, 'utf8'));
+    return {
+      inputs: extractManifestKeys(manifest.inputs),
+      outputs: extractManifestKeys(manifest.outputs),
+      slots: extractManifestKeys(manifest.slots)
+    };
+  } catch {
+    return null;
+  }
+}
+
+function loadManifestOutputs(manifestPath) {
+  const metadata = loadComponentMetadata(manifestPath);
+  return metadata ? metadata.outputs : [];
+}
+
+function metadataForComposePath(composePath) {
+  if (!composePath || typeof composePath !== 'string') {
+    return null;
+  }
+  const manifestPath = path.join(path.dirname(composePath), 'lcp.toml');
+  if (!fs.existsSync(manifestPath)) {
+    return null;
+  }
+  return loadComponentMetadata(manifestPath);
+}
+
+function cloneMetadata(meta) {
+  if (!meta || typeof meta !== 'object') {
+    return null;
+  }
+  const inputs = Array.isArray(meta.inputs) ? dedupeStrings(meta.inputs) : [];
+  const outputs = Array.isArray(meta.outputs) ? dedupeStrings(meta.outputs) : [];
+  const slots = Array.isArray(meta.slots) ? dedupeStrings(meta.slots) : [];
+  if (!inputs.length && !outputs.length && !slots.length) {
+    return null;
+  }
+  return {
+    inputs,
+    outputs,
+    slots
+  };
+}
+
+function dedupeStrings(list) {
+  return [...new Set(list.filter((item) => typeof item === 'string' && item.length > 0))];
+}
+
+function buildRegisterOptions(metadata, outputs) {
+  const normalizedMetadata = cloneMetadata(metadata);
+  let normalizedOutputs = Array.isArray(outputs) && outputs.length > 0
+    ? dedupeStrings(outputs)
+    : null;
+  if (!normalizedOutputs && normalizedMetadata && normalizedMetadata.outputs.length > 0) {
+    normalizedOutputs = [...normalizedMetadata.outputs];
+  }
+  const options = {};
+  if (normalizedMetadata) {
+    options.metadata = normalizedMetadata;
+  }
+  if (normalizedOutputs && normalizedOutputs.length > 0) {
+    options.outputs = normalizedOutputs;
+  }
+  return Object.keys(options).length > 0 ? options : undefined;
+}
+
 function getHelperDefinitions() {
   if (!helperDefsCache) {
     helperDefsCache = buildHelperDefinitions();
@@ -49,35 +124,71 @@ function gatherResolverCandidates() {
     seen.add(key);
     out.push(entry);
   };
+
+  const addWorkspaceSources = (candidatePath) => {
+    if (!candidatePath) return;
+    const normalized = path.resolve(candidatePath);
+    if (!fs.existsSync(normalized)) return;
+    let handled = false;
+    if (fs.existsSync(path.join(normalized, 'workspace.lcp.toml'))) {
+      push({ type: 'root', path: normalized });
+      handled = true;
+    }
+    const componentsDir = path.join(normalized, 'components');
+    if (fs.existsSync(componentsDir)) {
+      push({ type: 'components', path: componentsDir });
+      handled = true;
+    }
+    const stdComponents = path.join(normalized, 'packages', 'std', 'components');
+    if (fs.existsSync(stdComponents)) {
+      push({ type: 'components', path: stdComponents });
+      handled = true;
+    }
+    if (!handled) {
+      try {
+        if (fs.statSync(normalized).isDirectory()) {
+          push({ type: 'components', path: normalized });
+        }
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const addWorkspacePathList = (value) => {
+    if (!value) return;
+    for (const entry of value.split(path.delimiter).map((item) => item.trim()).filter(Boolean)) {
+      addWorkspaceSources(entry);
+    }
+  };
+
   const runtimeResolverRoot = getRuntimeResolverRoot();
   if (runtimeResolverRoot) {
     push({ type: 'root', path: runtimeResolverRoot });
   }
   if (process.env.LCOD_RESOLVER_COMPONENTS_PATH) {
-    push({ type: 'components', path: path.resolve(process.env.LCOD_RESOLVER_COMPONENTS_PATH) });
+    addWorkspacePathList(process.env.LCOD_RESOLVER_COMPONENTS_PATH);
   }
   if (process.env.LCOD_RESOLVER_PATH) {
-    push({ type: 'root', path: path.resolve(process.env.LCOD_RESOLVER_PATH) });
+    addWorkspacePathList(process.env.LCOD_RESOLVER_PATH);
   }
   if (process.env.LCOD_COMPONENTS_PATH) {
-    const base = path.resolve(process.env.LCOD_COMPONENTS_PATH);
-    push({ type: 'components', path: base });
-    push({
-      type: 'components',
-      path: path.join(base, 'packages', 'std', 'components')
-    });
+    addWorkspacePathList(process.env.LCOD_COMPONENTS_PATH);
   }
+  if (process.env.LCOD_COMPONENTS_PATHS) {
+    addWorkspacePathList(process.env.LCOD_COMPONENTS_PATHS);
+  }
+  if (process.env.LCOD_WORKSPACE_PATHS) {
+    addWorkspacePathList(process.env.LCOD_WORKSPACE_PATHS);
+  }
+  addWorkspaceSources(process.cwd());
   const specToolingRoot = path.resolve(repoRoot, '..', 'lcod-spec', 'tooling');
   push({ type: 'legacy', path: path.join(specToolingRoot, 'resolver') });
   push({ type: 'legacy', path: path.join(specToolingRoot, 'registry') });
   push({ type: 'legacy', path: specToolingRoot });
   push({ type: 'root', path: path.resolve(repoRoot, '..', 'lcod-resolver') });
   const localComponentsRoot = path.resolve(repoRoot, '..', 'lcod-components');
-  push({ type: 'components', path: localComponentsRoot });
-  push({
-    type: 'components',
-    path: path.join(localComponentsRoot, 'packages', 'std', 'components')
-  });
+  addWorkspaceSources(localComponentsRoot);
   return out;
 }
 
@@ -156,6 +267,13 @@ function loadWorkspaceDefinitions(rootPath) {
             if (compManifest?.id && compManifest.id !== canonicalId) {
               def.aliases.push(compManifest.id);
             }
+            const manifestMetadata = loadComponentMetadata(componentManifestPath);
+            if (manifestMetadata) {
+              def.outputs = manifestMetadata.outputs;
+              def.inputs = manifestMetadata.inputs;
+              def.slots = manifestMetadata.slots;
+              def.metadata = manifestMetadata;
+            }
           } catch (err) {
             void logKernelWarn(null, 'Failed to parse component manifest', {
               data: { componentManifestPath, error: err?.message },
@@ -201,6 +319,13 @@ function loadWorkspaceDefinitions(rootPath) {
         };
         if (rawId !== canonicalId) {
           def.aliases.push(rawId);
+        }
+        const manifestMetadata = loadComponentMetadata(manifestPath);
+        if (manifestMetadata) {
+          def.outputs = manifestMetadata.outputs;
+          def.inputs = manifestMetadata.inputs;
+          def.slots = manifestMetadata.slots;
+          def.metadata = manifestMetadata;
         }
         defs.push(def);
       }
@@ -248,10 +373,16 @@ function loadLegacyComponentDefinitions(componentsDir) {
     if (fs.existsSync(composePath)) {
       const manifestPath = path.join(currentDir, 'lcp.toml');
       let componentId;
+      let manifestOutputs = [];
+      let manifestInputs = [];
+      let manifestSlots = [];
       if (fs.existsSync(manifestPath)) {
         try {
           const manifest = parseToml(fs.readFileSync(manifestPath, 'utf8'));
           componentId = manifest?.id;
+          manifestOutputs = extractManifestKeys(manifest?.outputs);
+          manifestInputs = extractManifestKeys(manifest?.inputs);
+          manifestSlots = extractManifestKeys(manifest?.slots);
         } catch (err) {
           void logKernelWarn(null, 'Failed to parse legacy component manifest', {
             data: { manifestPath, error: err?.message },
@@ -271,6 +402,16 @@ function loadLegacyComponentDefinitions(componentsDir) {
           cacheKey: `${componentId}::${composePath}`,
           aliases: []
         });
+        if (manifestOutputs.length > 0) {
+          defs[defs.length - 1].outputs = manifestOutputs;
+        }
+        if (manifestInputs.length > 0 || manifestSlots.length > 0) {
+          defs[defs.length - 1].metadata = {
+            inputs: manifestInputs,
+            outputs: manifestOutputs,
+            slots: manifestSlots
+          };
+        }
       }
       return;
     }
@@ -415,7 +556,10 @@ function ensureFallbackHelperDefinitions(collected) {
       if (ids.has(id)) return;
       const composePath = path.join(specRoot, ...composeRelPath);
       if (!fs.existsSync(composePath)) return;
-      collected.push({
+      const manifestPath = path.join(specRoot, ...composeRelPath.slice(0, -1), 'lcp.toml');
+      const componentMetadata = fs.existsSync(manifestPath) ? loadComponentMetadata(manifestPath) : null;
+      const outputs = componentMetadata ? componentMetadata.outputs : [];
+      const def = {
         id,
         composePath,
         context: {
@@ -425,7 +569,16 @@ function ensureFallbackHelperDefinitions(collected) {
         },
         cacheKey: `${id}::${composePath}`,
         aliases: []
-      });
+      };
+      if (componentMetadata) {
+        def.outputs = componentMetadata.outputs;
+        def.inputs = componentMetadata.inputs;
+        def.slots = componentMetadata.slots;
+        def.metadata = componentMetadata;
+      } else if (outputs.length > 0) {
+        def.outputs = outputs;
+      }
+      collected.push(def);
     };
 
     const entries = [
@@ -581,12 +734,16 @@ export function registerResolverHelpers(registry) {
   const helperDefs = getHelperDefinitions();
   for (const def of helperDefs) {
     const ids = [def.id, ...(def.aliases || [])];
+    const definitionMetadata = def.metadata || metadataForComposePath(def.composePath);
+    const outputs = Array.isArray(def.outputs) && def.outputs.length > 0
+      ? [...def.outputs]
+      : (definitionMetadata?.outputs?.length ? [...definitionMetadata.outputs] : null);
+    const registerOptions = buildRegisterOptions(definitionMetadata, outputs);
     for (const id of ids) {
       registry.register(id, async (ctx, input = {}) => {
         const { steps } = await loadHelper(def);
-        const resultState = await runSteps(ctx, steps, input);
-        return resultState;
-      });
+        return runSteps(ctx, steps, input);
+      }, registerOptions);
     }
   }
   registry.register('lcod://tooling/resolver/register@1', async (_ctx, input = {}) => {
@@ -632,10 +789,35 @@ export function registerResolverHelpers(registry) {
         continue;
       }
 
+      let declaredOutputs = [];
+      let declaredInputs = [];
+      if (Array.isArray(component.outputs)) {
+        declaredOutputs = component.outputs.filter((item) => typeof item === 'string');
+      } else if (typeof component.composePath === 'string' && component.composePath.length > 0) {
+        const manifestPath = path.join(path.dirname(component.composePath), 'lcp.toml');
+        if (fs.existsSync(manifestPath)) {
+          declaredOutputs = loadManifestOutputs(manifestPath);
+        }
+      }
+      if (Array.isArray(component.inputs)) {
+        declaredInputs = component.inputs.filter((item) => typeof item === 'string');
+      }
+
+      let metadata = null;
+      if (typeof component.composePath === 'string' && component.composePath.length > 0) {
+        metadata = metadataForComposePath(component.composePath);
+      }
+      if (metadata && declaredInputs.length) {
+        metadata.inputs = declaredInputs;
+      } else if (!metadata && declaredInputs.length) {
+        metadata = { inputs: declaredInputs, outputs: [], slots: [] };
+      }
+      const outputs = declaredOutputs.length > 0 ? declaredOutputs : null;
+
+      const registerOptions = buildRegisterOptions(metadata, outputs);
       registry.register(canonicalId, async (ctx, payload = {}) => {
-        const resultState = await runSteps(ctx, steps, payload);
-        return resultState;
-      });
+        return runSteps(ctx, steps, payload);
+      }, registerOptions);
       count += 1;
     }
     return {

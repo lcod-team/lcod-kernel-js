@@ -253,6 +253,12 @@ export async function runSteps(ctx, steps, state, slot) {
       ctx.ensureNotCancelled();
       const arr = resolveSlotSteps(slotMap, name);
       const baseState = localState == null ? cur : localState;
+      if (!arr || arr.length === 0) {
+        if (typeof prevRunSlot === 'function') {
+          return prevRunSlot(name, localState, slotVars);
+        }
+        throw new Error(`Slot "${name}" not provided`);
+      }
       ctx._pushScope();
       try {
         return await runSteps(ctx, arr, baseState, slotVars ?? slot);

@@ -25,3 +25,6 @@ coverage/
 
 # Logs
 *.log
+/.lcod/
+**/.lcod/
+**/lcp.lock
