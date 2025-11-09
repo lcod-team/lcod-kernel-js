@@ -6,6 +6,22 @@ function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function buildInlineMetadata(entry) {
+  if (!isPlainObject(entry)) {
+    return null;
+  }
+  const collectKeys = (section) => Object.keys(section || {})
+    .filter((key) => typeof key === 'string' && key.length > 0);
+
+  const inputs = collectKeys(isPlainObject(entry.inputs) ? entry.inputs : null);
+  const outputs = collectKeys(isPlainObject(entry.outputs) ? entry.outputs : null);
+  const slots = collectKeys(isPlainObject(entry.slots) ? entry.slots : null);
+  if (inputs.length === 0 && outputs.length === 0 && slots.length === 0) {
+    return null;
+  }
+  return { inputs, outputs, slots };
+}
+
 function sanitizeBindings(rawBindings) {
   if (!isPlainObject(rawBindings)) return {};
   const sanitized = {};
