@@ -25,6 +25,12 @@ import { registerHttpContracts } from '../src/http/index.js';
 const DEFAULT_CATALOGUE_URL = 'https://raw.githubusercontent.com/lcod-team/lcod-components/main/registry/components.std.jsonl';
 const DEFAULT_COMPONENTS_REPO = 'https://github.com/lcod-team/lcod-components';
 const CATALOGUE_TTL_MS = 24 * 60 * 60 * 1000;
+const WORKSPACE_MANIFEST_FILES = [
+  'registry/components.std.jsonl',
+  'components.std.jsonl',
+  'manifest.jsonl',
+  'runtime/manifest.jsonl'
+];
 
 function parseArgs(argv) {
   const args = {
@@ -257,6 +263,15 @@ async function stopHost(host) {
 }
 
 async function resolveComponentCompose(ctx, componentId) {
+  let fallbackError = null;
+  try {
+    const fallbackPath = await fallbackResolveComponent(componentId);
+    const metadata = await loadManifestMetadata(fallbackPath);
+    return { steps: loadComposeFile(fallbackPath), path: fallbackPath, metadata };
+  } catch (err) {
+    fallbackError = err;
+  }
+
   try {
     const result = await ctx.call('lcod://resolver/locate_component@0.1.0', { componentId });
     if (result && result.found) {
@@ -283,13 +298,8 @@ async function resolveComponentCompose(ctx, componentId) {
     console.warn(`Resolver locate_component failed for ${componentId}: ${err?.message || err}`);
   }
 
-  try {
-    const fallbackPath = await fallbackResolveComponent(componentId);
-    const metadata = await loadManifestMetadata(fallbackPath);
-    return { steps: loadComposeFile(fallbackPath), path: fallbackPath, metadata };
-  } catch (err) {
-    throw new Error(`Failed to resolve component ${componentId}: ${err?.message || err}`);
-  }
+  const message = fallbackError?.message || fallbackError || 'Component not found in catalogue or resolver';
+  throw new Error(`Failed to resolve component ${componentId}: ${message}`);
 }
 
 async function resolveComponentFromSpec(componentId) {
@@ -388,6 +398,11 @@ async function fallbackResolveComponent(componentId) {
   if (!entry) {
     throw new Error(`Component ${componentId} not found in default catalogue`);
   }
+  const manifestBase = catalogueBaseDir(cataloguePath);
+  const localCompose = resolveLocalManifestFile(manifestBase, entry.compose);
+  if (localCompose) {
+    return localCompose;
+  }
 
   const safeKey = sanitizeComponentKey(key);
   const componentDir = path.join(cacheRoot, 'components', safeKey, version);
@@ -395,20 +410,26 @@ async function fallbackResolveComponent(componentId) {
 
   const composePath = path.join(componentDir, 'compose.yaml');
   if (!(await fileExists(composePath))) {
-    const composeUrl = buildComponentUrl(entry, entry.compose);
-    if (!composeUrl) {
-      throw new Error(`Catalogue entry for ${componentId} missing compose path`);
+    const copied = await tryCopyCatalogueFile(manifestBase, entry.compose, composePath);
+    if (!copied) {
+      const composeUrl = buildComponentUrl(entry, entry.compose);
+      if (!composeUrl) {
+        throw new Error(`Catalogue entry for ${componentId} missing compose path`);
+      }
+      await downloadUrlToPath(composeUrl, composePath);
     }
-    await downloadUrlToPath(composeUrl, composePath);
   }
 
   const lcpPath = extractLcpPath(entry.lcp);
   if (lcpPath) {
     const target = path.join(componentDir, 'lcp.toml');
     if (!(await fileExists(target))) {
-      const lcpUrl = buildComponentUrl(entry, lcpPath);
-      if (lcpUrl) {
-        await downloadUrlToPath(lcpUrl, target);
+      const copied = await tryCopyCatalogueFile(manifestBase, lcpPath, target);
+      if (!copied) {
+        const lcpUrl = buildComponentUrl(entry, lcpPath);
+        if (lcpUrl) {
+          await downloadUrlToPath(lcpUrl, target);
+        }
       }
     }
   }
@@ -488,6 +509,104 @@ async function manifestFromRoot(root) {
   return null;
 }
 
+function catalogueBaseDir(manifestPath) {
+  if (!manifestPath) return null;
+  const dir = path.dirname(manifestPath);
+  const parent = path.basename(dir).toLowerCase();
+  if (parent === 'registry') {
+    return path.dirname(dir);
+  }
+  return dir;
+}
+
+async function tryCopyCatalogueFile(baseDir, manifestEntry, targetPath) {
+  if (!baseDir) return false;
+  if (!manifestEntry || typeof manifestEntry !== 'string' || manifestEntry.length === 0) {
+    return false;
+  }
+  const cleaned = manifestEntry.replace(/^\.\//, '');
+  const sourcePath = path.resolve(baseDir, cleaned);
+  if (!(await fileExists(sourcePath))) {
+    return false;
+  }
+  await fsp.mkdir(path.dirname(targetPath), { recursive: true });
+  await fsp.copyFile(sourcePath, targetPath);
+  return true;
+}
+
+function resolveLocalManifestFile(baseDir, manifestEntry) {
+  if (!baseDir || !manifestEntry || typeof manifestEntry !== 'string' || manifestEntry.length === 0) {
+    return null;
+  }
+  const cleaned = manifestEntry.replace(/^\.\//, '');
+  const candidate = path.resolve(baseDir, cleaned);
+  if (fs.existsSync(candidate)) {
+    try {
+      return fs.realpathSync(candidate);
+    } catch {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function splitEnvPaths(value) {
+  return value
+    .split(path.delimiter)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function collectWorkspaceRoots() {
+  const roots = [];
+  const register = (candidate) => {
+    if (!candidate) return;
+    try {
+      const resolved = fs.realpathSync(candidate);
+      roots.push(resolved);
+    } catch {
+      roots.push(candidate);
+    }
+  };
+  for (const name of ['LCOD_WORKSPACE_PATHS', 'LCOD_COMPONENTS_PATHS', 'LCOD_COMPONENTS_PATH']) {
+    const raw = process.env[name];
+    if (raw && raw.length > 0) {
+      for (const entry of splitEnvPaths(raw)) {
+        register(entry);
+      }
+    }
+  }
+  register(process.cwd());
+  return roots;
+}
+
+function workspaceManifestCandidates() {
+  const candidates = [];
+  const seen = new Set();
+  const push = (candidate) => {
+    if (!candidate) return;
+    const resolved = path.resolve(candidate);
+    if (seen.has(resolved)) return;
+    seen.add(resolved);
+    candidates.push(resolved);
+  };
+
+  const explicit = process.env.LCOD_COMPONENTS_MANIFESTS;
+  if (explicit && explicit.length > 0) {
+    for (const entry of splitEnvPaths(explicit)) {
+      push(entry);
+    }
+  }
+
+  for (const root of collectWorkspaceRoots()) {
+    for (const relative of WORKSPACE_MANIFEST_FILES) {
+      push(path.join(root, relative));
+    }
+  }
+
+  return candidates;
+}
+
 async function runtimeManifestFromEnv() {
   const candidates = [];
   if (process.env.LCOD_HOME) candidates.push(process.env.LCOD_HOME);
@@ -503,6 +622,12 @@ async function runtimeManifestFromEnv() {
 }
 
 async function ensureCatalogueCached(cacheRoot) {
+  for (const candidate of workspaceManifestCandidates()) {
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
   const localManifest = await runtimeManifestFromEnv();
   if (localManifest) {
     return localManifest;
