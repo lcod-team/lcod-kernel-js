@@ -60,6 +60,7 @@ async function registerInlineComponents(ctx, rawComponents) {
     }
 
     if (Array.isArray(entry.compose)) {
+      const metadata = buildInlineMetadata(entry);
       let normalized;
       try {
         normalized = await normalizeCompose(entry.compose);
@@ -77,7 +78,7 @@ async function registerInlineComponents(ctx, rawComponents) {
         }
       }
 
-      ctx.registry.register(componentId, async (innerCtx, input = {}) => {
+      const handler = async (innerCtx, input = {}) => {
         const seed = isPlainObject(input) ? { ...input } : {};
         const result = await runSteps(innerCtx, normalized, seed, {});
         if (result && typeof result === 'object') {
@@ -85,7 +86,12 @@ async function registerInlineComponents(ctx, rawComponents) {
           if (result.logs !== undefined) return result.logs;
         }
         return result ?? {};
-      });
+      };
+      if (metadata) {
+        ctx.registry.register(componentId, handler, { metadata });
+      } else {
+        ctx.registry.register(componentId, handler);
+      }
       continue;
     }
 
