@@ -40,6 +40,14 @@ function resolveValue(v, state, slot) {
     if (v[OPTIONAL_FLAG]) {
       return resolveValue(v.value, state, slot);
     }
+    const keys = Object.keys(v);
+    if (
+      keys.length === 1 &&
+      (Object.prototype.hasOwnProperty.call(v, '__lcod_state__') ||
+        Object.prototype.hasOwnProperty.call(v, '__lcod_input__'))
+    ) {
+      return cloneLiteral(state);
+    }
     if (isStepDefinition(v)) return v;
     const out = {};
     for (const [key, value] of Object.entries(v)) {

@@ -238,11 +238,6 @@ function sanitizeComponentInput(input, metadata) {
       ? baseClone[key]
       : null;
   }
-  for (const [key, value] of Object.entries(baseClone)) {
-    if (!Object.prototype.hasOwnProperty.call(sanitized, key)) {
-      sanitized[key] = value;
-    }
-  }
   return sanitized;
 }
 
