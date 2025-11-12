@@ -353,14 +353,16 @@ export function registerStdHelpers(registry) {
   registry.register('lcod://tooling/array/find_duplicates@0.1.0', arrayFindDuplicates);
 
   const arrayAppend = async (_ctx, input = {}) => {
-    const base = Array.isArray(input.items) ? [...input.items] : [];
+    const clone = input.clone !== false;
+    const source = Array.isArray(input.items) ? input.items : [];
+    const target = clone ? source.slice() : source;
     if (Array.isArray(input.values)) {
-      base.push(...input.values);
+      target.push(...input.values);
     }
     if (Object.prototype.hasOwnProperty.call(input, 'value')) {
-      base.push(input.value);
+      target.push(input.value);
     }
-    return { items: base, length: base.length };
+    return { items: target, length: target.length };
   };
   registry.register('lcod://contract/tooling/array/append@1', arrayAppend);
   registry.register('lcod://tooling/array/append@0.1.0', arrayAppend);
