@@ -276,6 +276,15 @@ test('core/value/equals compares deep values', async () => {
   assert.equal(different.equal, false);
 });
 
+test('core/value/clone returns independent copy', async () => {
+  const ctx = createContext();
+  const original = { nested: [{ value: 1 }], flag: true };
+  const cloned = await ctx.call('lcod://contract/core/value/clone@1', { value: original });
+  assert.deepEqual(cloned.value, original);
+  cloned.value.nested[0].value = 99;
+  assert.equal(original.nested[0].value, 1);
+});
+
 test('core/number/trunc truncates toward zero', async () => {
   const ctx = createContext();
   const pos = await ctx.call('lcod://contract/core/number/trunc@1', { value: 3.9 });

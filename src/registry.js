@@ -126,12 +126,11 @@ export class Context {
     const { fn, inputSchema, outputSchema, metadata } = entry;
     let preparedInput = dataIn ?? {};
     let rawSnapshot = null;
-    if (metadata && metadata.inputs.length > 0) {
-      const { sanitized, raw } = sanitizeComponentInput(preparedInput, metadata);
+    if (metadata) {
+      const captureRaw = needsRawSnapshot(name);
+      const { sanitized, raw } = sanitizeComponentInput(preparedInput, metadata, captureRaw);
       preparedInput = sanitized;
-      if (needsRawSnapshot(name)) {
-        rawSnapshot = raw;
-      }
+      rawSnapshot = captureRaw ? raw : null;
     }
     const pushedRaw = Boolean(rawSnapshot);
     if (pushedRaw) {
@@ -255,16 +254,16 @@ function toPlainObject(value) {
   return { value };
 }
 
-function sanitizeComponentInput(input, metadata) {
+function sanitizeComponentInput(input, metadata, captureRaw = false) {
   const source = toPlainObject(input);
   if (!metadata || !metadata.inputs || metadata.inputs.length === 0) {
-    return { sanitized: cloneJson(source), raw: null };
+    return { sanitized: source, raw: captureRaw ? cloneJson(source) : null };
   }
-  const rawSnapshot = cloneJson(source);
+  const rawSnapshot = captureRaw ? cloneJson(source) : null;
   const sanitized = {};
   for (const key of metadata.inputs) {
     sanitized[key] = Object.prototype.hasOwnProperty.call(source, key)
-      ? cloneJson(source[key])
+      ? source[key]
       : null;
   }
   return { sanitized, raw: rawSnapshot };

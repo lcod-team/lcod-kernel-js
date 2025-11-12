@@ -61,6 +61,14 @@ function mergePlainObjects(left = {}, right = {}, options = {}) {
   };
 }
 
+function deepCloneValue(value) {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(value);
+  }
+  if (value === undefined) return undefined;
+  return JSON.parse(JSON.stringify(value));
+}
+
 function sortKeysDeep(value) {
   if (Array.isArray(value)) {
     return value.map(item => sortKeysDeep(item));
@@ -840,6 +848,11 @@ export function registerNodeCore(reg) {
     const left = Object.prototype.hasOwnProperty.call(input, 'left') ? input.left : null;
     const right = Object.prototype.hasOwnProperty.call(input, 'right') ? input.right : null;
     return { equal: isDeepStrictEqual(left, right) };
+  });
+
+  reg.register('lcod://contract/core/value/clone@1', async (_ctx, input = {}) => {
+    const value = Object.prototype.hasOwnProperty.call(input, 'value') ? input.value : null;
+    return { value: deepCloneValue(value) };
   });
 
   reg.register('lcod://contract/core/number/trunc@1', async (_ctx, input = {}) => {
