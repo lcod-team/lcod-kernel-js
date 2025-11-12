@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { parse as parseToml, stringify as stringifyToml } from '@iarna/toml';
@@ -731,6 +732,7 @@ function ensureResolverAxiomFallbacks(registry) {
 
 export function registerResolverHelpers(registry) {
   ensureResolverAxiomFallbacks(registry);
+  registerResolveDependenciesContract(registry);
   const helperDefs = getHelperDefinitions();
   for (const def of helperDefs) {
     const ids = [def.id, ...(def.aliases || [])];
@@ -826,4 +828,183 @@ export function registerResolverHelpers(registry) {
     };
   });
   return registry;
+}
+
+function registerResolveDependenciesContract(registry) {
+  registry.register('lcod://contract/tooling/resolver/resolve_dependencies@1', async (ctx, input = {}) => {
+    const projectPath = typeof input.projectPath === 'string' ? input.projectPath : null;
+    const normalizedConfig = input.normalizedConfig && typeof input.normalizedConfig === 'object'
+      ? input.normalizedConfig
+      : null;
+    const rootDescriptor = input.rootDescriptor && typeof input.rootDescriptor === 'object'
+      ? input.rootDescriptor
+      : null;
+    if (!projectPath || !normalizedConfig || !rootDescriptor) {
+      throw new Error('resolve_dependencies contract requires projectPath, normalizedConfig and rootDescriptor');
+    }
+
+    const initialWarnings = Array.isArray(input.warnings)
+      ? input.warnings.filter((msg) => typeof msg === 'string' && msg.length > 0)
+      : [];
+    const warnings = [...initialWarnings];
+    const sourceEntries = extractSourceEntries(normalizedConfig.sources);
+    if (!sourceEntries) {
+      throw new Error('resolve_dependencies contract only supports object/array sources');
+    }
+    if (sourceEntries.some(([, spec]) => !isPathSpec(spec))) {
+      throw new Error('resolve_dependencies contract currently supports path sources only');
+    }
+    const sourceMap = new Map(sourceEntries.map(([key, spec]) => [key, spec]));
+    const descriptorCache = new Map();
+    const resolved = new Map();
+
+    const readDescriptor = async (basePath, preload) => {
+      if (preload && preload.descriptor && preload.descriptorText) {
+        const childIds = extractRequires(preload.descriptor);
+        const integrity = hashText(preload.descriptorText);
+        return {
+          descriptor: preload.descriptor,
+          descriptorText: preload.descriptorText,
+          childIds,
+          integrity
+        };
+      }
+      const descriptorPath = path.join(basePath, 'lcp.toml');
+      const cacheKey = descriptorPath;
+      if (descriptorCache.has(cacheKey)) {
+        return descriptorCache.get(cacheKey);
+      }
+      let text;
+      try {
+        text = await fsp.readFile(descriptorPath, 'utf8');
+      } catch (err) {
+        throw new Error(`Failed to read descriptor ${descriptorPath}: ${err.message || err}`);
+      }
+      let parsed;
+      try {
+        parsed = parseToml(text);
+      } catch (err) {
+        throw new Error(`Failed to parse descriptor ${descriptorPath}: ${err.message || err}`);
+      }
+      const entry = {
+        descriptor: parsed,
+        descriptorText: text,
+        childIds: extractRequires(parsed),
+        integrity: hashText(text)
+      };
+      descriptorCache.set(cacheKey, entry);
+      return entry;
+    };
+
+    const resolveDependency = async (depId, stack = [], preload) => {
+      const targetId = typeof depId === 'string' && depId.length > 0 ? depId : String(depId);
+      if (resolved.has(targetId)) return resolved.get(targetId);
+      if (stack.includes(targetId)) {
+        throw new Error(`Dependency cycle detected: ${[...stack, targetId].join(' -> ')}`);
+      }
+      let spec = sourceMap.get(targetId);
+      if (!spec) {
+        if (preload && preload.source && preload.source.type === 'path') {
+          spec = { type: 'path', path: preload.source.path };
+        }
+      }
+      if (!spec || !isPathSpec(spec)) {
+        throw new Error(`Unsupported spec for ${targetId}`);
+      }
+      const basePath = path.isAbsolute(spec.path)
+        ? spec.path
+        : path.join(projectPath, spec.path === '.' ? '' : spec.path);
+      const descriptorData = await readDescriptor(basePath, preload);
+      const record = {
+        id: targetId,
+        source: { type: 'path', path: basePath },
+        dependencies: []
+      };
+      if (descriptorData.integrity) {
+        record.integrity = descriptorData.integrity;
+      }
+      resolved.set(targetId, record);
+      for (const childId of descriptorData.childIds) {
+        try {
+          const child = await resolveDependency(childId, [...stack, targetId]);
+          record.dependencies.push(child);
+        } catch (err) {
+          warnings.push(`Failed to resolve ${childId} for ${targetId}: ${err.message || err}`);
+        }
+      }
+      return record;
+    };
+
+    const preloadRoot = {
+      descriptor: rootDescriptor,
+      descriptorText: typeof input.rootDescriptorText === 'string' ? input.rootDescriptorText : '',
+      source: { type: 'path', path: projectPath }
+    };
+
+    const rootId = typeof input.rootId === 'string' && input.rootId.length > 0
+      ? input.rootId
+      : rootDescriptor.id;
+    if (!rootId) {
+      throw new Error('rootId missing');
+    }
+
+    const rootRecord = await resolveDependency(rootId, [], preloadRoot);
+
+    if (process.env.LCOD_DEBUG_RESOLVER === '1') {
+      console.error('[lcod-debug] resolve_dependencies contract success');
+    }
+    const resolverResult = {
+      root: rootRecord,
+      warnings: warnings.slice(),
+      registry: {
+        registries: Array.isArray(input.registryRegistries) ? input.registryRegistries : [],
+        entries: Array.isArray(input.registryEntries) ? input.registryEntries : [],
+        packages: input.registryPackages && typeof input.registryPackages === 'object'
+          ? input.registryPackages
+          : {}
+      }
+    };
+
+    return {
+      resolverResult,
+      warnings
+    };
+  });
+}
+
+function extractSourceEntries(sources) {
+  if (!sources) return [];
+  if (Array.isArray(sources)) {
+    return sources
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') return null;
+        const id = typeof entry.id === 'string' && entry.id.length > 0
+          ? entry.id
+          : (typeof entry.target === 'string' ? entry.target : null);
+        if (!id) return null;
+        const spec = entry.spec && typeof entry.spec === 'object' ? entry.spec : entry;
+        return [id, spec];
+      })
+      .filter(Boolean);
+  }
+  if (typeof sources === 'object') {
+    return Object.entries(sources).filter(([key]) => typeof key === 'string' && key.length > 0);
+  }
+  return null;
+}
+
+function isPathSpec(spec) {
+  return spec && typeof spec === 'object' && (!spec.type || spec.type === 'path') && typeof spec.path === 'string';
+}
+
+function extractRequires(descriptor) {
+  const requires = descriptor?.deps?.requires;
+  if (!Array.isArray(requires)) return [];
+  return requires.filter((dep) => typeof dep === 'string' && dep.length > 0);
+}
+
+function hashText(text) {
+  const hash = createHash('sha256');
+  hash.update(text, 'utf8');
+  return `sha256-${hash.digest('hex')}`;
 }
