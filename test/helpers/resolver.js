@@ -27,6 +27,16 @@ function buildCandidates() {
       )
     );
   }
+  const pushWorkspacePaths = (envVar) => {
+    const value = process.env[envVar];
+    if (!value) return;
+    for (const entry of value.split(path.delimiter).map((item) => item.trim()).filter(Boolean)) {
+      list.push(path.resolve(entry, 'packages', 'resolver', 'compose.yaml'));
+      list.push(path.resolve(entry, 'compose.yaml'));
+    }
+  };
+  pushWorkspacePaths('LCOD_WORKSPACE_PATHS');
+  pushWorkspacePaths('LCOD_COMPONENTS_PATHS');
   if (process.env.SPEC_REPO_PATH) {
     list.push(
       path.resolve(

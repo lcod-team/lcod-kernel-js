@@ -538,7 +538,6 @@ export function registerStdHelpers(registry) {
 
   const registryNormalizeSources = async (_ctx, input = {}) => {
     const entries = Array.isArray(input.entries) ? input.entries : [];
-    console.error('normalize sources count', entries.length);
     const normalizedEntries = [];
     const warnings = [];
     for (const rawEntry of entries) {

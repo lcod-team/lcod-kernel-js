@@ -266,8 +266,10 @@ export async function runSteps(ctx, steps, state, slot) {
         if (hasLocalSlot) {
           return {};
         }
-        const hasParentHandler = typeof prevRunSlot === 'function' && prevRunSlot !== ctx._defaultRunSlot;
-        if (hasParentHandler) {
+        const canDelegate =
+          step?.call === 'lcod://contract/compose/run_slot@1' &&
+          typeof prevRunSlot === 'function' && prevRunSlot !== ctx._defaultRunSlot;
+        if (canDelegate) {
           return prevRunSlot(name, localState, slotVars);
         }
         throw new Error(`Slot "${name}" not provided`);

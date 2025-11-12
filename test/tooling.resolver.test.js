@@ -278,6 +278,9 @@ test('resolver compose resolves local path dependency', async (t) => {
     };
 
     const result = await runCompose(ctx, compose, state);
+    console.log('[resolver-test] result keys', Object.keys(result));
+    console.log('[resolver-test] contractSourcesSnapshot', JSON.stringify(result.contractSourcesSnapshot ?? null));
+    console.log('[resolver-test] resolverOutput', JSON.stringify(result.resolverOutput ?? null));
     const components = Array.isArray(result.components) ? result.components : [];
     assert.equal(components.length, 1);
     const rootEntry = components[0];
@@ -288,15 +291,13 @@ test('resolver compose resolves local path dependency', async (t) => {
     assert.equal(deps.length, 1);
     const depEntry = deps[0];
     assert.equal(depEntry.id, 'lcod://example/dep@0.1.0');
-    assert.equal(depEntry.source?.type, 'registry');
-    assert.equal(depEntry.source?.reference, 'lcod://example/dep@0.1.0');
+    assert.equal(depEntry.source?.type, 'path');
+    assert.equal(depEntry.source?.path, path.join(tempProject, 'components', 'dep'));
     const warnings = Array.isArray(result.warnings) ? result.warnings : [];
-    const allowedWarning = 'Registry lookup failed for lcod://example/dep@0.1.0';
-    const unexpectedWarnings = warnings.filter((warning) => warning !== allowedWarning);
     assert.equal(
-      unexpectedWarnings.length,
+      warnings.length,
       0,
-      `Unexpected warnings: ${unexpectedWarnings.join(', ')}`
+      `Unexpected warnings: ${warnings.join(', ')}`
     );
   } finally {
     await fs.rm(tempProject, { recursive: true, force: true });
@@ -389,8 +390,15 @@ test('resolver compose handles git sources with cache dir', async (t) => {
     assert.equal(deps.length, 1);
     const depEntry = deps[0];
     assert.equal(depEntry.id, 'lcod://example/git@0.1.0');
-    assert.equal(depEntry.source?.type, 'registry');
-    assert.equal(depEntry.source?.reference, 'lcod://example/git@0.1.0');
+    assert.equal(depEntry.source?.type, 'git');
+    assert.equal(depEntry.source?.url, repoDir);
+    const checkoutPath = depEntry.source?.path || '';
+    const defaultCacheRoot = path.join(tempProject, '.lcod', 'cache');
+    const acceptedRoots = [cacheOverride, defaultCacheRoot].filter((root) => typeof root === 'string' && root.length > 0);
+    assert.ok(
+      typeof checkoutPath === 'string' && acceptedRoots.some((root) => checkoutPath.startsWith(root)),
+      `expected git checkout under ${acceptedRoots.join(' or ')}, got ${checkoutPath}`
+    );
     assert.ok(rootEntry.integrity);
   } finally {
     delete process.env.LCOD_CACHE_DIR;

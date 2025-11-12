@@ -832,113 +832,486 @@ export function registerResolverHelpers(registry) {
 
 function registerResolveDependenciesContract(registry) {
   registry.register('lcod://contract/tooling/resolver/resolve_dependencies@1', async (ctx, input = {}) => {
-    const projectPath = typeof input.projectPath === 'string' ? input.projectPath : null;
-    const normalizedConfig = input.normalizedConfig && typeof input.normalizedConfig === 'object'
-      ? input.normalizedConfig
-      : null;
+    const sanitizeStrings = (value) => Array.isArray(value)
+      ? value.filter((msg) => typeof msg === 'string' && msg.length > 0)
+      : [];
+    const sanitizeObjectArray = (value) => Array.isArray(value)
+      ? value.filter((entry) => entry && typeof entry === 'object')
+      : [];
+    const clonePlainObject = (value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+      try {
+        return JSON.parse(JSON.stringify(value));
+      } catch {
+        return null;
+      }
+    };
+    const hasKeys = (value) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
+    const callOptional = async (component, payload) => {
+      try {
+        return await ctx.call(component, payload ?? {});
+      } catch (err) {
+        if (process.env.LCOD_DEBUG_RESOLVER === '1') {
+          console.error('[lcod-debug] resolver helper call failed', component, err);
+        }
+        return null;
+      }
+    };
+
     const rootDescriptor = input.rootDescriptor && typeof input.rootDescriptor === 'object'
       ? input.rootDescriptor
       : null;
-    if (!projectPath || !normalizedConfig || !rootDescriptor) {
-      throw new Error('resolve_dependencies contract requires projectPath, normalizedConfig and rootDescriptor');
+    if (!rootDescriptor) {
+      throw new Error('resolve_dependencies contract requires rootDescriptor');
+    }
+    let projectPath = typeof input.projectPath === 'string' && input.projectPath.length > 0
+      ? path.resolve(input.projectPath)
+      : process.cwd();
+    let cacheRoot = typeof input.cacheRoot === 'string' && input.cacheRoot.length > 0
+      ? path.resolve(input.cacheRoot)
+      : projectPath;
+
+    const baseWarnings = sanitizeStrings(input.warnings);
+    const warningBuckets = [
+      baseWarnings,
+      sanitizeStrings(input.loadWarnings),
+      sanitizeStrings(input.indexWarnings),
+      sanitizeStrings(input.registrationWarnings),
+      sanitizeStrings(input.pointerWarnings)
+    ];
+    let warnings = warningBuckets.flat();
+    if (warningBuckets.some((bucket, idx) => idx > 0 && bucket.length > 0)) {
+      const merged = await callOptional('lcod://tooling/resolver/warnings/merge@0.1.0', { buckets: warningBuckets });
+      if (merged && Array.isArray(merged.warnings)) {
+        warnings = merged.warnings.slice();
+      }
     }
 
-    const initialWarnings = Array.isArray(input.warnings)
-      ? input.warnings.filter((msg) => typeof msg === 'string' && msg.length > 0)
-      : [];
-    const warnings = [...initialWarnings];
-    const sourceEntries = extractSourceEntries(normalizedConfig.sources);
+    const normalizedConfigRaw = clonePlainObject(input.normalizedConfig) ?? {};
+    const configRaw = clonePlainObject(input.config) ?? {};
+    const pointerRegistrySources = sanitizeObjectArray(input.pointerRegistrySources);
+    const registryRegistries = Array.isArray(input.registryRegistries) ? input.registryRegistries : [];
+    const registryEntries = Array.isArray(input.registryEntries) ? input.registryEntries : [];
+    const registryPackages = input.registryPackages && typeof input.registryPackages === 'object'
+      ? input.registryPackages
+      : {};
+    const sourcesPath = typeof input.sourcesPath === 'string' && input.sourcesPath.length > 0
+      ? input.sourcesPath
+      : null;
+
+    let sources = hasKeys(normalizedConfigRaw.sources)
+      ? normalizedConfigRaw.sources
+      : (hasKeys(configRaw.sources) ? configRaw.sources : {});
+    let registrySources = sanitizeObjectArray(input.registrySources);
+    let replaceAlias = clonePlainObject(normalizedConfigRaw.replaceAlias) ?? {};
+    let replaceSpec = clonePlainObject(normalizedConfigRaw.replaceSpec) ?? {};
+    let allowlist = Array.isArray(normalizedConfigRaw.allowlist)
+      ? normalizedConfigRaw.allowlist.filter((entry) => typeof entry === 'string' && entry.length > 0)
+      : null;
+
+    const normalizedForContext = clonePlainObject(normalizedConfigRaw) ?? {};
+    if (pointerRegistrySources.length) {
+      const existing = Array.isArray(normalizedForContext.registrySources)
+        ? sanitizeObjectArray(normalizedForContext.registrySources)
+        : [];
+      normalizedForContext.registrySources = [...existing, ...pointerRegistrySources];
+    }
+    if (sourcesPath) {
+      normalizedForContext.sourcesPath = sourcesPath;
+    }
+
+    const prepared = await callOptional('lcod://tooling/resolver/context/prepare@0.1.0', {
+      projectPath,
+      cacheRoot,
+      normalizedConfig: normalizedForContext,
+      warnings,
+      registryWarnings: sanitizeStrings(input.indexWarnings)
+    });
+    if (prepared) {
+      if (typeof prepared.projectPath === 'string' && prepared.projectPath.length > 0) {
+        projectPath = path.resolve(prepared.projectPath);
+      }
+      if (typeof prepared.cacheRoot === 'string' && prepared.cacheRoot.length > 0) {
+        cacheRoot = path.resolve(prepared.cacheRoot);
+      }
+      if (prepared.sources && typeof prepared.sources === 'object') {
+        sources = prepared.sources;
+      }
+      if (Array.isArray(prepared.registrySources)) {
+        registrySources = sanitizeObjectArray(prepared.registrySources);
+      }
+      if (prepared.replaceAlias && typeof prepared.replaceAlias === 'object') {
+        replaceAlias = prepared.replaceAlias;
+      }
+      if (prepared.replaceSpec && typeof prepared.replaceSpec === 'object') {
+        replaceSpec = prepared.replaceSpec;
+      }
+      if (Array.isArray(prepared.allowlist) || prepared.allowlist === null) {
+        allowlist = prepared.allowlist;
+      }
+      if (Array.isArray(prepared.warnings)) {
+        warnings = prepared.warnings.slice();
+      }
+    }
+
+    const sourceEntries = extractSourceEntries(sources);
     if (!sourceEntries) {
       throw new Error('resolve_dependencies contract only supports object/array sources');
     }
-    if (sourceEntries.some(([, spec]) => !isPathSpec(spec))) {
-      throw new Error('resolve_dependencies contract currently supports path sources only');
-    }
     const sourceMap = new Map(sourceEntries.map(([key, spec]) => [key, spec]));
+    const replaceAliasMap = new Map(Object.entries(replaceAlias));
+    const replaceSpecMap = new Map(Object.entries(replaceSpec));
     const descriptorCache = new Map();
     const resolved = new Map();
 
-    const readDescriptor = async (basePath, preload) => {
-      if (preload && preload.descriptor && preload.descriptorText) {
-        const childIds = extractRequires(preload.descriptor);
-        const integrity = hashText(preload.descriptorText);
-        return {
-          descriptor: preload.descriptor,
-          descriptorText: preload.descriptorText,
-          childIds,
-          integrity
-        };
+    const hashTextValue = (text) => {
+      const hash = createHash('sha256');
+      hash.update(text, 'utf8');
+      return `sha256-${hash.digest('hex')}`;
+    };
+
+    const normalizePath = (base, segment) => {
+      if (!segment || segment === '.') return path.resolve(base);
+      if (path.isAbsolute(segment)) return path.resolve(segment);
+      if (segment.startsWith('~')) {
+        const home = process.env.HOME || process.env.USERPROFILE || '';
+        return path.resolve(home, segment.slice(1));
       }
-      const descriptorPath = path.join(basePath, 'lcp.toml');
-      const cacheKey = descriptorPath;
-      if (descriptorCache.has(cacheKey)) {
-        return descriptorCache.get(cacheKey);
+      return path.resolve(base, segment);
+    };
+
+    const readDescriptor = async (descriptorPath) => {
+      const normalized = path.resolve(descriptorPath);
+      if (descriptorCache.has(normalized)) {
+        return descriptorCache.get(normalized);
       }
-      let text;
-      try {
-        text = await fsp.readFile(descriptorPath, 'utf8');
-      } catch (err) {
-        throw new Error(`Failed to read descriptor ${descriptorPath}: ${err.message || err}`);
-      }
-      let parsed;
-      try {
-        parsed = parseToml(text);
-      } catch (err) {
-        throw new Error(`Failed to parse descriptor ${descriptorPath}: ${err.message || err}`);
-      }
-      const entry = {
-        descriptor: parsed,
-        descriptorText: text,
-        childIds: extractRequires(parsed),
-        integrity: hashText(text)
-      };
-      descriptorCache.set(cacheKey, entry);
+      const text = await fsp.readFile(normalized, 'utf8');
+      const descriptor = parseToml(text);
+      const childIds = extractRequires(descriptor);
+      const integrity = hashTextValue(text);
+      const entry = { descriptor, descriptorText: text, childIds, integrity };
+      descriptorCache.set(normalized, entry);
       return entry;
     };
 
-    const resolveDependency = async (depId, stack = [], preload) => {
-      const targetId = typeof depId === 'string' && depId.length > 0 ? depId : String(depId);
-      if (resolved.has(targetId)) return resolved.get(targetId);
-      if (stack.includes(targetId)) {
-        throw new Error(`Dependency cycle detected: ${[...stack, targetId].join(' -> ')}`);
+    const isAllowed = (candidate) => {
+      if (!allowlist || allowlist.length === 0) return true;
+      return allowlist.some((rule) => {
+        if (rule.endsWith('*')) {
+          return candidate.startsWith(rule.slice(0, -1));
+        }
+        if (rule.endsWith('/')) {
+          return candidate.startsWith(rule);
+        }
+        return candidate === rule || candidate.startsWith(`${rule}/`);
+      });
+    };
+
+    const selectReplacement = async (id) => {
+      const applied = await callOptional('lcod://tooling/resolver/replace/apply@0.1.0', {
+        id,
+        replaceAlias,
+        replaceSpec
+      });
+      if (applied && typeof applied === 'object') {
+        return {
+          targetId: applied.targetId ?? id,
+          override: applied.override ?? null,
+          warnings: Array.isArray(applied.warnings) ? applied.warnings : []
+        };
       }
-      let spec = sourceMap.get(targetId);
-      if (!spec) {
-        if (preload && preload.source && preload.source.type === 'path') {
-          spec = { type: 'path', path: preload.source.path };
+      let current = id;
+      let override = null;
+      const visited = new Set();
+      const localWarnings = [];
+      while (true) {
+        if (replaceSpecMap.has(current)) {
+          override = replaceSpecMap.get(current);
+          break;
+        }
+        if (!replaceAliasMap.has(current)) {
+          break;
+        }
+        if (visited.has(current)) {
+          localWarnings.push(`Replacement cycle detected: ${[...visited, current].join(' -> ')}`);
+          break;
+        }
+        visited.add(current);
+        current = replaceAliasMap.get(current);
+      }
+      return { targetId: current, override, warnings: localWarnings };
+    };
+
+    const gitClone = (payload) => ctx.call('lcod://contract/core/git/clone@1', payload);
+    const httpDownload = (payload) => ctx.call('lcod://axiom/http/download@1', payload);
+    const registrySelect = (payload) => ctx.call('lcod://tooling/registry/select@0.1.0', payload);
+
+    const resolvePathSpec = async (spec, preload) => {
+      const basePath = normalizePath(projectPath, spec.path || '.');
+      if (preload && preload.descriptor && preload.descriptorText) {
+        const integrity = hashTextValue(preload.descriptorText);
+        const childIds = extractRequires(preload.descriptor);
+        return {
+          descriptor: preload.descriptor,
+          descriptorText: preload.descriptorText,
+          integrity,
+          source: preload.source || { type: 'path', path: basePath },
+          childIds
+        };
+      }
+      const descriptor = await readDescriptor(path.join(basePath, 'lcp.toml'));
+      return {
+        ...descriptor,
+        source: { type: 'path', path: basePath }
+      };
+    };
+
+    const resolveGitSpec = async (id, spec) => {
+      if (typeof spec.url !== 'string' || !spec.url) {
+        throw new Error(`Missing git url for ${id}`);
+      }
+      const keyPayload = JSON.stringify({ id, url: spec.url, ref: spec.ref ?? null, subdir: spec.subdir ?? null });
+      const keyHash = hashTextValue(keyPayload).replace('sha256-', '');
+      const repoRoot = normalizePath(cacheRoot, 'git');
+      const repoDir = normalizePath(repoRoot, keyHash);
+      const descriptorRoot = spec.subdir ? normalizePath(repoDir, spec.subdir) : repoDir;
+      const descriptorPath = path.join(descriptorRoot, 'lcp.toml');
+      let data;
+      let cloneMeta = null;
+      try {
+        data = await readDescriptor(descriptorPath);
+      } catch (err) {
+        const cloneInput = { url: spec.url, dest: repoDir };
+        if (spec.ref) cloneInput.ref = spec.ref;
+        if (spec.depth) cloneInput.depth = spec.depth;
+        if (spec.subdir) cloneInput.subdir = spec.subdir;
+        if (spec.auth) cloneInput.auth = spec.auth;
+        cloneMeta = await gitClone(cloneInput);
+        data = await readDescriptor(descriptorPath);
+      }
+      const source = {
+        type: 'git',
+        url: spec.url,
+        path: descriptorRoot
+      };
+      if (spec.ref) source.ref = spec.ref;
+      if (spec.subdir) source.subdir = spec.subdir;
+      if (cloneMeta?.commit) source.commit = cloneMeta.commit;
+      if (!source.ref && cloneMeta?.ref) source.ref = cloneMeta.ref;
+      if (cloneMeta?.source?.fetchedAt) source.fetchedAt = cloneMeta.source.fetchedAt;
+      return {
+        descriptor: data.descriptor,
+        descriptorText: data.descriptorText,
+        integrity: data.integrity,
+        source,
+        childIds: data.childIds
+      };
+    };
+
+    const resolveHttpSpec = async (id, spec) => {
+      if (typeof spec.url !== 'string' || !spec.url) {
+        throw new Error(`Missing http url for ${id}`);
+      }
+      const keyPayload = JSON.stringify({ id, url: spec.url, descriptorPath: spec.descriptorPath ?? null });
+      const keyHash = hashTextValue(keyPayload).replace('sha256-', '');
+      const httpRoot = normalizePath(cacheRoot, 'http');
+      const artifactDir = normalizePath(httpRoot, keyHash);
+      const filename = typeof spec.filename === 'string' && spec.filename ? spec.filename : 'artifact.toml';
+      const artifactPath = normalizePath(artifactDir, filename);
+      const descriptorPath = spec.descriptorPath
+        ? normalizePath(artifactDir, spec.descriptorPath)
+        : artifactPath;
+      let data;
+      try {
+        data = await readDescriptor(descriptorPath);
+      } catch (err) {
+        const downloadInput = { url: spec.url, path: artifactPath };
+        if (spec.method) downloadInput.method = spec.method;
+        if (spec.headers) downloadInput.headers = spec.headers;
+        if (spec.query) downloadInput.query = spec.query;
+        if (spec.timeoutMs) downloadInput.timeoutMs = spec.timeoutMs;
+        if (spec.followRedirects !== undefined) downloadInput.followRedirects = spec.followRedirects;
+        if (spec.body !== undefined) downloadInput.body = spec.body;
+        if (spec.bodyEncoding) downloadInput.bodyEncoding = spec.bodyEncoding;
+        await httpDownload(downloadInput);
+        data = await readDescriptor(descriptorPath);
+      }
+      const source = {
+        type: 'http',
+        url: spec.url,
+        path: spec.descriptorPath ? artifactDir : descriptorPath
+      };
+      if (spec.descriptorPath) source.descriptorPath = spec.descriptorPath;
+      if (spec.filename) source.filename = filename;
+      return {
+        descriptor: data.descriptor,
+        descriptorText: data.descriptorText,
+        integrity: data.integrity,
+        source,
+        childIds: data.childIds
+      };
+    };
+
+    const resolveRegistrySpec = async () => ({
+      descriptor: {},
+      descriptorText: '',
+      source: { type: 'registry' },
+      childIds: []
+    });
+
+    const loadSpec = async (id, spec, preload) => {
+      if (spec?.type === 'path') return resolvePathSpec(spec, preload);
+      if (spec?.type === 'git') return resolveGitSpec(id, spec);
+      if (spec?.type === 'http') return resolveHttpSpec(id, spec);
+      if (spec?.type === 'registry') return resolveRegistrySpec(id, spec);
+      if (preload && preload.descriptor && preload.descriptorText) {
+        const integrity = hashTextValue(preload.descriptorText);
+        const childIds = extractRequires(preload.descriptor);
+        return {
+          descriptor: preload.descriptor,
+          descriptorText: preload.descriptorText,
+          integrity,
+          source: preload.source || { type: 'path', path: projectPath },
+          childIds
+        };
+      }
+      return {
+        descriptor: {},
+        descriptorText: '',
+        source: { type: 'registry', reference: id },
+        childIds: []
+      };
+    };
+
+    const parseComponentId = (identifier) => {
+      if (typeof identifier !== 'string') {
+        return { base: identifier, version: null };
+      }
+      const atIndex = identifier.lastIndexOf('@');
+      if (atIndex <= 'lcod://'.length) {
+        return { base: identifier, version: null };
+      }
+      return {
+        base: identifier.slice(0, atIndex),
+        version: identifier.slice(atIndex + 1)
+      };
+    };
+
+    const ensureVersionId = (baseId, version) => {
+      if (!version) return baseId;
+      return `${baseId}@${version}`;
+    };
+
+    const resolveDependency = async (depId, stack = [], preload) => {
+      const originalId = typeof depId === 'string' && depId ? depId : String(depId);
+      if (resolved.has(originalId)) return resolved.get(originalId);
+      if (!isAllowed(originalId)) {
+        throw new Error(`Dependency ${originalId} is not allowed by resolver configuration`);
+      }
+      if (stack.includes(originalId)) {
+        throw new Error(`Dependency cycle detected: ${[...stack, originalId].join(' -> ')}`);
+      }
+      const { targetId: replacementId, override, warnings: replacementWarnings } = await selectReplacement(originalId);
+      if (replacementWarnings && replacementWarnings.length) {
+        warnings.push(...replacementWarnings);
+      }
+      const targetIdInitial = replacementId ?? originalId;
+      if (!isAllowed(targetIdInitial)) {
+        throw new Error(`Dependency ${targetIdInitial} is not allowed by resolver configuration`);
+      }
+      let spec = override
+        ?? (preload && originalId === targetIdInitial ? preload.source : undefined)
+        ?? sourceMap.get(targetIdInitial)
+        ?? sourceMap.get(originalId);
+      let targetId = targetIdInitial;
+
+      const parsedTarget = parseComponentId(targetIdInitial);
+      const baseTargetId = parsedTarget.base;
+      let versionHint = parsedTarget.version;
+      if (spec && typeof spec.version === 'string' && spec.version.length > 0) {
+        versionHint = spec.version;
+      }
+      const registryHint = spec && typeof spec.registryId === 'string' && spec.registryId.length > 0
+        ? spec.registryId
+        : undefined;
+
+      if (!spec || spec.type === 'registry' || !spec.type) {
+        const request = {
+          packages: registryPackages,
+          id: baseTargetId,
+          range: versionHint,
+          registryId: registryHint
+        };
+        try {
+          const selection = await registrySelect(request);
+          const registryEntry = selection?.entry || null;
+          if (registryEntry) {
+            targetId = ensureVersionId(baseTargetId, registryEntry.version || versionHint);
+            spec = {
+              type: 'registry',
+              registryId: registryEntry.registryId,
+              entry: registryEntry
+            };
+          }
+        } catch (err) {
+          warnings.push(`Registry lookup error for ${originalId}: ${err.message}`);
         }
       }
-      if (!spec || !isPathSpec(spec)) {
-        throw new Error(`Unsupported spec for ${targetId}`);
+
+      let info;
+      try {
+        const preloadCandidate = originalId === targetId ? preload : undefined;
+        info = await loadSpec(targetId, spec, preloadCandidate);
+      } catch (err) {
+        warnings.push(`Failed to load ${targetId} for ${originalId}: ${err.message}`);
+        const fallbackSource = spec && spec.type ? spec.type : 'registry';
+        const fallback = {
+          id: originalId,
+          resolved: targetId !== originalId ? targetId : undefined,
+          source: { type: fallbackSource, reference: targetId },
+          dependencies: []
+        };
+        resolved.set(originalId, fallback);
+        return fallback;
       }
-      const basePath = path.isAbsolute(spec.path)
-        ? spec.path
-        : path.join(projectPath, spec.path === '.' ? '' : spec.path);
-      const descriptorData = await readDescriptor(basePath, preload);
+
+      let source = info?.source || { type: 'registry', reference: targetId };
+      if ((!source || source.type === 'registry') && spec && typeof spec === 'object') {
+        if (spec.type === 'path') {
+          const basePath = normalizePath(projectPath, spec.path || '.');
+          source = { type: 'path', path: basePath };
+        } else if (spec.type === 'git' && typeof spec.url === 'string' && spec.url) {
+          source = info?.source || { type: 'git', url: spec.url };
+        } else if (spec.type === 'http' && typeof spec.url === 'string' && spec.url) {
+          source = info?.source || { type: 'http', url: spec.url };
+          if (!source.descriptorPath && spec.descriptorPath) {
+            source.descriptorPath = spec.descriptorPath;
+          }
+        }
+      }
+
       const record = {
-        id: targetId,
-        source: { type: 'path', path: basePath },
+        id: originalId,
+        source,
         dependencies: []
       };
-      if (descriptorData.integrity) {
-        record.integrity = descriptorData.integrity;
+      if (targetId !== originalId) {
+        record.resolved = targetId;
       }
-      resolved.set(targetId, record);
-      for (const childId of descriptorData.childIds) {
+      if (info?.integrity) record.integrity = info.integrity;
+      resolved.set(originalId, record);
+
+      const childIds = Array.isArray(info?.childIds) ? info.childIds : [];
+      for (const child of childIds) {
+        if (typeof child !== 'string' || !child) continue;
         try {
-          const child = await resolveDependency(childId, [...stack, targetId]);
-          record.dependencies.push(child);
+          const childRecord = await resolveDependency(child, [...stack, originalId]);
+          if (childRecord) record.dependencies.push(childRecord);
         } catch (err) {
-          warnings.push(`Failed to resolve ${childId} for ${targetId}: ${err.message || err}`);
+          warnings.push(`Failed to resolve ${child} for ${originalId}: ${err.message}`);
         }
       }
       return record;
-    };
-
-    const preloadRoot = {
-      descriptor: rootDescriptor,
-      descriptorText: typeof input.rootDescriptorText === 'string' ? input.rootDescriptorText : '',
-      source: { type: 'path', path: projectPath }
     };
 
     const rootId = typeof input.rootId === 'string' && input.rootId.length > 0
@@ -947,24 +1320,21 @@ function registerResolveDependenciesContract(registry) {
     if (!rootId) {
       throw new Error('rootId missing');
     }
-
+    const preloadRoot = {
+      descriptor: rootDescriptor,
+      descriptorText: typeof input.rootDescriptorText === 'string' ? input.rootDescriptorText : '',
+      source: { type: 'path', path: projectPath }
+    };
     const rootRecord = await resolveDependency(rootId, [], preloadRoot);
-
-    if (process.env.LCOD_DEBUG_RESOLVER === '1') {
-      console.error('[lcod-debug] resolve_dependencies contract success');
-    }
     const resolverResult = {
       root: rootRecord,
       warnings: warnings.slice(),
       registry: {
-        registries: Array.isArray(input.registryRegistries) ? input.registryRegistries : [],
-        entries: Array.isArray(input.registryEntries) ? input.registryEntries : [],
-        packages: input.registryPackages && typeof input.registryPackages === 'object'
-          ? input.registryPackages
-          : {}
+        registries: registryRegistries,
+        entries: registryEntries,
+        packages: registryPackages
       }
     };
-
     return {
       resolverResult,
       warnings
