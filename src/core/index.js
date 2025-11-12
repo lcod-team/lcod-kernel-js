@@ -5,11 +5,12 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
 import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { promisify, isDeepStrictEqual } from 'util';
 import crypto from 'crypto';
 import { parse as parseToml, stringify as stringifyToml } from '@iarna/toml';
 import { parse as parseCsv } from 'csv-parse/sync';
 import { registerStreamContracts, StreamManager } from './streams.js';
+import { registerState } from './state.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -76,6 +77,19 @@ function sortKeysDeep(value) {
 
 function escapeNonAscii(text) {
   return text.replace(/[\u007F-\uFFFF]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
+}
+
+function toPosixPath(p) {
+  return typeof p === 'string' ? p.replace(/\\/g, '/') : p;
+}
+
+function expandEnvPlaceholders(value) {
+  if (typeof value !== 'string' || value.length === 0) return value;
+  return value.replace(/\$\{([^}]+)\}/g, (_match, name) => {
+    const key = String(name || '').trim();
+    if (!key) return '';
+    return process.env[key] ?? '';
+  });
 }
 
 function parsePlaceholderSegments(expression) {
@@ -312,6 +326,48 @@ async function resolveTextInput(ctx, input, defaultEncoding = 'utf-8') {
 
 export function registerNodeCore(reg) {
   registerStreamContracts(reg);
+  registerState(reg);
+
+  const envGet = async (_ctx, input = {}) => {
+    const { name, required = false, expand = false } = input;
+    if (!name || typeof name !== 'string') throw new Error('name is required');
+    const defaultValue = Object.prototype.hasOwnProperty.call(input, 'default') ? input.default : null;
+    const raw = process.env[name];
+    const exists = typeof raw === 'string';
+    let value = exists ? raw : defaultValue;
+    if (required && (value === undefined || value === null)) {
+      throw new Error(`environment variable ${name} is not defined`);
+    }
+    if (typeof value === 'string' && expand) {
+      value = expandEnvPlaceholders(value);
+    }
+    return {
+      exists,
+      value: value ?? null
+    };
+  };
+  reg.register('lcod://contract/core/env/get@1', envGet);
+
+  const runtimeInfo = async (_ctx, input = {}) => {
+    const includePlatform = input.includePlatform !== false;
+    const includePid = input.includePid === true;
+    const cwd = toPosixPath(process.cwd());
+    const tmpDir = toPosixPath(os.tmpdir());
+    const home = os.homedir();
+    const result = {
+      cwd,
+      tmpDir,
+      homeDir: home ? toPosixPath(home) : null
+    };
+    if (includePlatform) {
+      result.platform = process.platform;
+    }
+    if (includePid) {
+      result.pid = process.pid;
+    }
+    return result;
+  };
+  reg.register('lcod://contract/core/runtime/info@1', runtimeInfo);
 
   // Filesystem contracts
   const fsReadFile = async (_ctx, input = {}) => {
@@ -391,6 +447,35 @@ export function registerNodeCore(reg) {
   };
   reg.register('lcod://contract/core/fs/list-dir@1', fsListDir);
   reg.register('lcod://contract/core/fs/list_dir@1', fsListDir);
+
+  const fsStat = async (_ctx, input = {}) => {
+    const target = input.path;
+    if (!target) throw new Error('path is required');
+    const followSymlinks = input.followSymlinks !== false;
+    const absolute = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target);
+    try {
+      const stats = followSymlinks ? await fs.stat(absolute) : await fs.lstat(absolute);
+      return {
+        path: toPosixPath(absolute),
+        exists: true,
+        isFile: stats.isFile(),
+        isDirectory: stats.isDirectory(),
+        isSymlink: stats.isSymbolicLink(),
+        size: stats.size,
+        mtime: stats.mtime.toISOString(),
+        ctime: stats.ctime ? stats.ctime.toISOString() : undefined
+      };
+    } catch (err) {
+      if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
+        return {
+          path: toPosixPath(absolute),
+          exists: false
+        };
+      }
+      throw err;
+    }
+  };
+  reg.register('lcod://contract/core/fs/stat@1', fsStat);
 
   // Stream contracts already registered above.
 
@@ -682,6 +767,12 @@ export function registerNodeCore(reg) {
     return response;
   });
 
+  reg.register('lcod://contract/core/object/entries@1', async (_ctx, input = {}) => {
+    const object = isPlainObject(input.object) ? input.object : {};
+    const entries = Object.entries(object).map(([key, value]) => [key, value]);
+    return { entries };
+  });
+
   reg.register('lcod://contract/core/string/format@1', async (_ctx, input = {}) => {
     const template = typeof input.template === 'string' ? input.template : '';
     const values = isPlainObject(input.values) ? input.values : (input.values ?? {});
@@ -690,6 +781,73 @@ export function registerNodeCore(reg) {
       missingPolicy: input.missingPolicy
     });
     return formatted;
+  });
+
+  reg.register('lcod://contract/core/string/split@1', async (_ctx, input = {}) => {
+    const { text, separator, limit, trim = false, removeEmpty = false } = input;
+    if (typeof text !== 'string') throw new Error('text must be a string');
+    if (typeof separator !== 'string' || separator.length === 0) {
+      throw new Error('separator must be a non-empty string');
+    }
+    const pieces = typeof limit === 'number' && Number.isInteger(limit) && limit > 0
+      ? text.split(separator, limit)
+      : text.split(separator);
+    const segments = [];
+    for (const part of pieces) {
+      const processed = trim ? part.trim() : part;
+      if (removeEmpty && processed.length === 0) continue;
+      segments.push(processed);
+    }
+    return { segments };
+  });
+
+  reg.register('lcod://contract/core/string/trim@1', async (_ctx, input = {}) => {
+    const { text, mode = 'both' } = input;
+    if (typeof text !== 'string') throw new Error('text must be a string');
+    let value;
+    if (mode === 'start') value = text.trimStart();
+    else if (mode === 'end') value = text.trimEnd();
+    else value = text.trim();
+    return { value };
+  });
+
+  reg.register('lcod://contract/core/value/kind@1', async (_ctx, input = {}) => {
+    const value = Object.prototype.hasOwnProperty.call(input, 'value')
+      ? input.value
+      : null;
+    let kind;
+    if (value === null || value === undefined) {
+      kind = 'null';
+    } else if (Array.isArray(value)) {
+      kind = 'array';
+    } else {
+      const type = typeof value;
+      if (type === 'string') kind = 'string';
+      else if (type === 'boolean') kind = 'boolean';
+      else if (type === 'number') {
+        if (!Number.isFinite(value)) throw new Error('value must be finite');
+        kind = 'number';
+      } else if (type === 'object') {
+        kind = 'object';
+      } else {
+        kind = 'null';
+      }
+    }
+    return { kind };
+  });
+
+  reg.register('lcod://contract/core/value/equals@1', async (_ctx, input = {}) => {
+    const left = Object.prototype.hasOwnProperty.call(input, 'left') ? input.left : null;
+    const right = Object.prototype.hasOwnProperty.call(input, 'right') ? input.right : null;
+    return { equal: isDeepStrictEqual(left, right) };
+  });
+
+  reg.register('lcod://contract/core/number/trunc@1', async (_ctx, input = {}) => {
+    const { value } = input;
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new Error('value must be a finite number');
+    }
+    return { value: Math.trunc(value) };
   });
 
   reg.register('lcod://contract/core/json/encode@1', async (_ctx, input = {}) => {

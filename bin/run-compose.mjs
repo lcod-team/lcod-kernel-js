@@ -568,6 +568,7 @@ function collectWorkspaceRoots() {
       roots.push(candidate);
     }
   };
+  register(process.cwd());
   for (const name of ['LCOD_WORKSPACE_PATHS', 'LCOD_COMPONENTS_PATHS', 'LCOD_COMPONENTS_PATH']) {
     const raw = process.env[name];
     if (raw && raw.length > 0) {
@@ -576,7 +577,6 @@ function collectWorkspaceRoots() {
       }
     }
   }
-  register(process.cwd());
   return roots;
 }
 
@@ -591,10 +591,11 @@ function workspaceManifestCandidates() {
     candidates.push(resolved);
   };
 
+  const deferred = [];
   const explicit = process.env.LCOD_COMPONENTS_MANIFESTS;
   if (explicit && explicit.length > 0) {
     for (const entry of splitEnvPaths(explicit)) {
-      push(entry);
+      deferred.push(entry);
     }
   }
 
@@ -602,6 +603,10 @@ function workspaceManifestCandidates() {
     for (const relative of WORKSPACE_MANIFEST_FILES) {
       push(path.join(root, relative));
     }
+  }
+
+  for (const entry of deferred) {
+    push(entry);
   }
 
   return candidates;

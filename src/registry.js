@@ -1,7 +1,5 @@
 // Simple function registry and context
 
-const RAW_INPUT_KEY = '__lcod_input__';
-
 export class Registry {
   constructor() {
     this.funcs = new Map();
@@ -50,6 +48,7 @@ export class Context {
     this.runChildren = async (_childrenArray, _localState, _slotVars) => { throw new Error('runChildren not available in this context'); };
     this.runSlot = async (_slotName, _localState, _slotVars) => { throw new Error('runSlot not available in this context'); };
     this._defaultRunSlot = this.runSlot;
+    this._rawInputStack = [];
     // Cleanup scopes for resources
     this._scopeStack = [];
     this._registryScopeStack = [];
@@ -125,9 +124,18 @@ export class Context {
     }
 
     const { fn, inputSchema, outputSchema, metadata } = entry;
-    let preparedInput = dataIn;
+    let preparedInput = dataIn ?? {};
+    let rawSnapshot = null;
     if (metadata && metadata.inputs.length > 0) {
-      preparedInput = sanitizeComponentInput(dataIn, metadata);
+      const { sanitized, raw } = sanitizeComponentInput(preparedInput, metadata);
+      preparedInput = sanitized;
+      if (needsRawSnapshot(name)) {
+        rawSnapshot = raw;
+      }
+    }
+    const pushedRaw = Boolean(rawSnapshot);
+    if (pushedRaw) {
+      this._rawInputStack.push(rawSnapshot);
     }
     if (inputSchema) {
       const validate = await getValidator(inputSchema);
@@ -137,7 +145,14 @@ export class Context {
         throw new Error(`Input validation failed for ${name}: ${msg}`);
       }
     }
-    let out = await fn(this, preparedInput, meta);
+    let out;
+    try {
+      out = await fn(this, preparedInput, meta);
+    } finally {
+      if (pushedRaw) {
+        this._rawInputStack.pop();
+      }
+    }
     if (Array.isArray(entry.outputs) && entry.outputs.length > 0) {
       out = filterOutputs(out, entry.outputs);
     }
@@ -183,6 +198,14 @@ export class Context {
       }
     }
   }
+
+  currentRawInput() {
+    if (!Array.isArray(this._rawInputStack) || this._rawInputStack.length === 0) {
+      return null;
+    }
+    const snapshot = this._rawInputStack[this._rawInputStack.length - 1];
+    return cloneJson(snapshot ?? null);
+  }
 }
 
 function filterOutputs(state, outputs) {
@@ -222,33 +245,53 @@ function dedupeStrings(list) {
   return [...new Set(list.filter((item) => typeof item === 'string' && item.length > 0))];
 }
 
-function sanitizeComponentInput(input, metadata) {
-  if (!metadata || !metadata.inputs || metadata.inputs.length === 0) {
-    return input ?? {};
+function toPlainObject(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value;
   }
-  const source = (input && typeof input === 'object' && !Array.isArray(input))
-    ? input
-    : { value: input };
-  const baseClone = cloneJson(source);
-  const sanitized = {};
-  sanitized[RAW_INPUT_KEY] = baseClone;
-  sanitized.value = cloneJson(baseClone);
-  for (const key of metadata.inputs) {
-    sanitized[key] = Object.prototype.hasOwnProperty.call(baseClone, key)
-      ? baseClone[key]
-      : null;
+  if (value === undefined || value === null) {
+    return {};
   }
-  return sanitized;
+  return { value };
 }
 
-function cloneJson(value) {
+function sanitizeComponentInput(input, metadata) {
+  const source = toPlainObject(input);
+  if (!metadata || !metadata.inputs || metadata.inputs.length === 0) {
+    return { sanitized: cloneJson(source), raw: null };
+  }
+  const rawSnapshot = cloneJson(source);
+  const sanitized = {};
+  for (const key of metadata.inputs) {
+    sanitized[key] = Object.prototype.hasOwnProperty.call(source, key)
+      ? cloneJson(source[key])
+      : null;
+  }
+  return { sanitized, raw: rawSnapshot };
+}
+
+const RAW_SNAPSHOT_COMPONENTS = new Set(['lcod://tooling/sanitizer/probe@0.1.0']);
+
+function needsRawSnapshot(name) {
+  return RAW_SNAPSHOT_COMPONENTS.has(name);
+}
+
+function cloneJson(value, seen = new WeakMap()) {
   if (Array.isArray(value)) {
-    return value.map(cloneJson);
+    if (seen.has(value)) return seen.get(value);
+    const copy = [];
+    seen.set(value, copy);
+    for (const item of value) {
+      copy.push(cloneJson(item, seen));
+    }
+    return copy;
   }
   if (value && typeof value === 'object') {
+    if (seen.has(value)) return seen.get(value);
     const out = {};
+    seen.set(value, out);
     for (const [k, v] of Object.entries(value)) {
-      out[k] = cloneJson(v);
+      out[k] = cloneJson(v, seen);
     }
     return out;
   }

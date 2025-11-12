@@ -2,6 +2,8 @@ import { normalizeCompose } from '../compose/normalizer.js';
 import { runSteps } from '../compose/runtime.js';
 import { logKernelWarn } from './logging.js';
 
+const SPEC_LOG_LIMIT = 1024;
+
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -66,6 +68,17 @@ async function registerInlineComponents(ctx, rawComponents) {
         if (entryValue && typeof entryValue === 'object') {
           if (!Array.isArray(innerCtx._specCapturedLogs)) {
             innerCtx._specCapturedLogs = [];
+          }
+          if (innerCtx._specCapturedLogs.length >= SPEC_LOG_LIMIT) {
+            if (!innerCtx._specLogOverflow) {
+              innerCtx._specCapturedLogs.push({
+                level: 'warn',
+                message: 'Spec log buffer truncated',
+                tags: { component: 'kernel', scope: 'registry-scope', reason: 'log-overflow' }
+              });
+              innerCtx._specLogOverflow = true;
+            }
+            return entryValue;
           }
           innerCtx._specCapturedLogs.push(entryValue);
           return entryValue;

@@ -101,6 +101,43 @@ test('core/fs read/write/list', async () => {
   assert.equal(list.entries.length, 1);
 });
 
+test('core/fs stat reports exists', async () => {
+  const ctx = createContext();
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lcod-fs-stat-'));
+  const filePath = path.join(tmpDir, 'file.txt');
+  await fs.writeFile(filePath, 'stat');
+
+  const existing = await ctx.call('lcod://contract/core/fs/stat@1', { path: filePath });
+  assert.equal(existing.exists, true);
+  assert.equal(existing.isFile, true);
+
+  const missing = await ctx.call('lcod://contract/core/fs/stat@1', { path: path.join(tmpDir, 'missing.txt') });
+  assert.equal(missing.exists, false);
+});
+
+test('core/env get resolves variables', async () => {
+  const ctx = createContext();
+  process.env.LCOD_TEST_ENV_NODE = 'value';
+  const hit = await ctx.call('lcod://contract/core/env/get@1', { name: 'LCOD_TEST_ENV_NODE' });
+  assert.equal(hit.value, 'value');
+  assert.equal(hit.exists, true);
+
+  delete process.env.LCOD_TEST_ENV_NODE_MISSING;
+  const miss = await ctx.call('lcod://contract/core/env/get@1', {
+    name: 'LCOD_TEST_ENV_NODE_MISSING',
+    default: 'fallback'
+  });
+  assert.equal(miss.value, 'fallback');
+  assert.equal(miss.exists, false);
+});
+
+test('core/runtime info exposes cwd', async () => {
+  const ctx = createContext();
+  const info = await ctx.call('lcod://contract/core/runtime/info@1', {});
+  assert.ok(typeof info.cwd === 'string' && info.cwd.length > 0);
+  assert.ok(typeof info.tmpDir === 'string' && info.tmpDir.length > 0);
+});
+
 test('core/hash/sha256 computes digest', async () => {
   const ctx = createContext();
   const result = await ctx.call('lcod://contract/core/hash/sha256@1', { data: 'abc', encoding: 'utf-8' });
@@ -192,4 +229,57 @@ test('core/object get and set', async () => {
   });
   assert.equal(setArrayIndex.created, false);
   assert.deepEqual(base.list, [10, 25]);
+});
+
+test('core/object/entries produces pairs', async () => {
+  const ctx = createContext();
+  const result = await ctx.call('lcod://contract/core/object/entries@1', { object: { foo: 1, bar: 'x' } });
+  assert.equal(result.entries.length, 2);
+});
+
+test('core/string/split honours trim and removeEmpty', async () => {
+  const ctx = createContext();
+  const result = await ctx.call('lcod://contract/core/string/split@1', {
+    text: 'a, b, ,c',
+    separator: ',',
+    trim: true,
+    removeEmpty: true
+  });
+  assert.deepEqual(result.segments, ['a', 'b', 'c']);
+});
+
+test('core/string/trim supports modes', async () => {
+  const ctx = createContext();
+  const both = await ctx.call('lcod://contract/core/string/trim@1', { text: '  hi  ' });
+  assert.equal(both.value, 'hi');
+  const end = await ctx.call('lcod://contract/core/string/trim@1', { text: '  hi  ', mode: 'end' });
+  assert.equal(end.value, '  hi');
+});
+
+test('core/value/kind reports JSON kinds', async () => {
+  const ctx = createContext();
+  const kindNull = await ctx.call('lcod://contract/core/value/kind@1', {});
+  assert.equal(kindNull.kind, 'null');
+  const kindString = await ctx.call('lcod://contract/core/value/kind@1', { value: 'demo' });
+  assert.equal(kindString.kind, 'string');
+  const kindNumber = await ctx.call('lcod://contract/core/value/kind@1', { value: 5 });
+  assert.equal(kindNumber.kind, 'number');
+  const kindArray = await ctx.call('lcod://contract/core/value/kind@1', { value: [1, 2] });
+  assert.equal(kindArray.kind, 'array');
+});
+
+test('core/value/equals compares deep values', async () => {
+  const ctx = createContext();
+  const equal = await ctx.call('lcod://contract/core/value/equals@1', { left: { a: [1, 2] }, right: { a: [1, 2] } });
+  assert.equal(equal.equal, true);
+  const different = await ctx.call('lcod://contract/core/value/equals@1', { left: { a: 1 }, right: { a: 2 } });
+  assert.equal(different.equal, false);
+});
+
+test('core/number/trunc truncates toward zero', async () => {
+  const ctx = createContext();
+  const pos = await ctx.call('lcod://contract/core/number/trunc@1', { value: 3.9 });
+  assert.equal(pos.value, 3);
+  const neg = await ctx.call('lcod://contract/core/number/trunc@1', { value: -4.2 });
+  assert.equal(neg.value, -4);
 });

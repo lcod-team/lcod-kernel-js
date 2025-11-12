@@ -62,6 +62,12 @@ function createHashKey(text, prefix) {
   return prefix ? `${prefix}${digest}` : digest;
 }
 
+function toTrimmedString(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
 function appendChildren(queue, children) {
   if (!Array.isArray(children)) return;
   for (const child of children) {
@@ -76,6 +82,77 @@ function collectWarnings(target, warnings) {
       target.push(warning);
     }
   }
+}
+
+function normalizeRegistrySourceEntry(entry) {
+  const warnings = [];
+  const id = toTrimmedString(entry.id);
+  if (!id) {
+    warnings.push('registry source entry is missing an id');
+    return { entry: null, warnings };
+  }
+
+  const type = toTrimmedString(entry.type) || 'path';
+  const normalized = { id, type };
+
+  if (Number.isFinite(entry.priority)) {
+    normalized.priority = Math.trunc(entry.priority);
+  }
+  if (isPlainObject(entry.defaults)) {
+    normalized.defaults = entry.defaults;
+  }
+  const registryPath = toTrimmedString(entry.registryPath);
+  if (registryPath) {
+    normalized.registryPath = registryPath;
+  }
+  const packagesPath = toTrimmedString(entry.packagesPath);
+  if (packagesPath) {
+    normalized.packagesPath = packagesPath;
+  }
+
+  if (type === 'path') {
+    const pathValue = toTrimmedString(entry.path);
+    if (!pathValue) {
+      warnings.push(`registry source "${id}" (type=path) is missing "path"`);
+      return { entry: null, warnings };
+    }
+    normalized.path = pathValue;
+    return { entry: normalized, warnings };
+  }
+
+  if (type === 'jsonl') {
+    const pathValue = toTrimmedString(entry.path);
+    const inlineJsonl = toTrimmedString(entry.jsonl);
+    if (pathValue) {
+      normalized.path = pathValue;
+      return { entry: normalized, warnings };
+    }
+    if (inlineJsonl) {
+      normalized.jsonl = inlineJsonl;
+      return { entry: normalized, warnings };
+    }
+    warnings.push(`registry source "${id}" (type=jsonl) is missing "path" or inline "jsonl" content`);
+    return { entry: null, warnings };
+  }
+
+  if (type === 'inline') {
+    const lines = Array.isArray(entry.lines)
+      ? entry.lines.filter((candidate) => isPlainObject(candidate)).map((candidate) => ({ ...candidate }))
+      : [];
+    if (!lines.length) {
+      warnings.push(`registry source "${id}" (type=inline) is missing "lines" entries`);
+      return { entry: null, warnings };
+    }
+    normalized.lines = lines;
+    const inlineJsonl = toTrimmedString(entry.jsonl);
+    if (inlineJsonl) {
+      normalized.jsonl = inlineJsonl;
+    }
+    return { entry: normalized, warnings };
+  }
+
+  warnings.push(`registry source "${id}" has unsupported type "${type}"`);
+  return { entry: null, warnings };
 }
 
 async function jsonlReadHelper(_ctx, input = {}) {
@@ -445,6 +522,37 @@ export function registerStdHelpers(registry) {
   };
   registry.register('lcod://contract/tooling/hash/to_key@1', hashToKey);
   registry.register('lcod://tooling/hash/to_key@0.1.0', hashToKey);
+
+  const registryNormalizeSource = async (_ctx, input = {}) => {
+    if (!isPlainObject(input.entry)) {
+      return { entry: null, warnings: [] };
+    }
+    return normalizeRegistrySourceEntry(input.entry);
+  };
+  registry.register(
+    'lcod://contract/tooling/registry/normalize_source@1',
+    registryNormalizeSource
+  );
+
+  const registryNormalizeSources = async (_ctx, input = {}) => {
+    const entries = Array.isArray(input.entries) ? input.entries : [];
+    console.error('normalize sources count', entries.length);
+    const normalizedEntries = [];
+    const warnings = [];
+    for (const rawEntry of entries) {
+      if (!isPlainObject(rawEntry)) continue;
+      const result = normalizeRegistrySourceEntry(rawEntry);
+      collectWarnings(warnings, result.warnings);
+      if (result.entry) {
+        normalizedEntries.push(result.entry);
+      }
+    }
+    return { entries: normalizedEntries, warnings };
+  };
+  registry.register(
+    'lcod://contract/tooling/registry/normalize_sources@1',
+    registryNormalizeSources
+  );
 
   registry.register('lcod://contract/tooling/queue/bfs@1', queueBfsHelper);
   registry.register('lcod://tooling/queue/bfs@0.1.0', queueBfsHelper);

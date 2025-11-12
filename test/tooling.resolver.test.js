@@ -254,6 +254,9 @@ test('resolver compose resolves local path dependency', async (t) => {
         tooling: {
           specRoot
         },
+        registry: {
+          sources: []
+        },
         sources: {
           'lcod://example/dep@0.1.0': { type: 'path', path: 'components/dep' }
         }
@@ -352,6 +355,9 @@ test('resolver compose handles git sources with cache dir', async (t) => {
       JSON.stringify({
         tooling: {
           specRoot
+        },
+        registry: {
+          sources: []
         },
         sources: {
           'lcod://example/git@0.1.0': { type: 'git', url: repoDir }

@@ -21,7 +21,7 @@ test('compose/run_slot executes slot and returns result', async () => {
 test('compose/run_slot optional flag skips missing slot', async () => {
   const ctx = {
     runSlot: async () => {
-      throw new Error('should not run');
+      throw new Error('Slot "missing" not provided');
     }
   };
   const meta = { children: {} };
