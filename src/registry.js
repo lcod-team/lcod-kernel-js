@@ -262,9 +262,9 @@ function sanitizeComponentInput(input, metadata, captureRaw = false) {
   const rawSnapshot = captureRaw ? cloneJson(source) : null;
   const sanitized = {};
   for (const key of metadata.inputs) {
-    sanitized[key] = Object.prototype.hasOwnProperty.call(source, key)
-      ? source[key]
-      : null;
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      sanitized[key] = source[key];
+    }
   }
   return { sanitized, raw: rawSnapshot };
 }
