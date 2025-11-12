@@ -299,6 +299,14 @@ export function registerStdHelpers(registry) {
   registry.register('lcod://contract/tooling/value/is_defined@1', valueIsDefined);
   registry.register('lcod://tooling/value/is_defined@0.1.0', valueIsDefined);
 
+  const valueIsStringNonempty = async (_ctx, input = {}) => {
+    if (typeof input.value !== 'string') {
+      return { ok: false };
+    }
+    return { ok: input.value.trim().length > 0 };
+  };
+  registry.register('lcod://tooling/value/is_string_nonempty@0.1.0', valueIsStringNonempty);
+
   const ensureTrailingNewline = async (_ctx, input = {}) => {
     const text = typeof input.text === 'string' ? input.text : '';
     const newline =
@@ -503,6 +511,11 @@ export function registerStdHelpers(registry) {
       cursor = next;
     }
     return { hasKey: false, value: undefined };
+  });
+
+  registry.register('lcod://tooling/object/entries@0.1.0', async (_ctx, input = {}) => {
+    const source = normaliseObject(input.value);
+    return { entries: Object.entries(source) };
   });
 
   const jsonStableStringify = async (_ctx, input = {}) => {
