@@ -833,6 +833,11 @@ export function registerNodeCore(reg) {
     return { dirname: computeDirname(target) };
   });
 
+  reg.register('lcod://contract/core/path/is_absolute@1', async (_ctx, input = {}) => {
+    const target = typeof input.path === 'string' ? input.path : '';
+    return { absolute: path.isAbsolute(target) };
+  });
+
   reg.register('lcod://contract/core/value/kind@1', async (_ctx, input = {}) => {
     const value = Object.prototype.hasOwnProperty.call(input, 'value')
       ? input.value

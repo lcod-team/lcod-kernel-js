@@ -169,6 +169,15 @@ test('core/path dirname returns parent directory', async () => {
   assert.equal(root.dirname, '/');
 });
 
+test('core/path is_absolute reports correctly', async () => {
+  const ctx = createContext();
+  const absolute = await ctx.call('lcod://contract/core/path/is_absolute@1', { path: '/tmp' });
+  assert.equal(absolute.absolute, true);
+
+  const relative = await ctx.call('lcod://contract/core/path/is_absolute@1', { path: 'foo/bar' });
+  assert.equal(relative.absolute, false);
+});
+
 test('core/array length and push', async () => {
   const ctx = createContext();
   const array = [1, 2, 3];
