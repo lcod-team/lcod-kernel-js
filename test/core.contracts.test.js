@@ -194,6 +194,17 @@ test('core/array length and push', async () => {
   assert.deepEqual(array, [1, 2, 3, 5], 'original array mutated when clone=false');
 });
 
+test('core/array shift returns head and rest', async () => {
+  const ctx = createContext();
+  const result = await ctx.call('lcod://contract/core/array/shift@1', { items: [1, 2, 3] });
+  assert.equal(result.head, 1);
+  assert.deepEqual(result.rest, [2, 3]);
+
+  const empty = await ctx.call('lcod://contract/core/array/shift@1', {});
+  assert.equal(empty.head, null);
+  assert.deepEqual(empty.rest, []);
+});
+
 test('core/object get and set', async () => {
   const ctx = createContext();
   const base = { nested: { value: 42 }, list: [10, 20] };

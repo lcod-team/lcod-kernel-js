@@ -693,6 +693,15 @@ export function registerNodeCore(reg) {
     return { value: base, length: base.length };
   });
 
+  reg.register('lcod://contract/core/array/shift@1', async (_ctx, input = {}) => {
+    const items = Array.isArray(input.items) ? input.items.slice() : [];
+    if (!items.length) {
+      return { head: null, rest: [] };
+    }
+    const [head, ...rest] = items;
+    return { head: typeof head === 'undefined' ? null : head, rest };
+  });
+
   reg.register('lcod://contract/core/object/get@1', async (_ctx, input = {}) => {
     const { object, path: segments, default: defaultValue } = input;
     if (!isPlainObject(object) && !Array.isArray(object)) {
@@ -988,6 +997,7 @@ export function registerNodeResolverAxioms(reg) {
   aliasContract('lcod://contract/core/array/length@1', 'lcod://axiom/array/length@1');
   aliasContract('lcod://contract/core/array/push@1', 'lcod://axiom/array/push@1');
   aliasContract('lcod://contract/core/array/append@1', 'lcod://axiom/array/append@1');
+  aliasContract('lcod://contract/core/array/shift@1', 'lcod://axiom/array/shift@1');
   aliasContract('lcod://contract/core/object/get@1', 'lcod://axiom/object/get@1');
   aliasContract('lcod://contract/core/object/set@1', 'lcod://axiom/object/set@1');
   aliasContract('lcod://contract/core/object/merge@1', 'lcod://axiom/object/merge@1');
