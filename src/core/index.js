@@ -819,6 +819,11 @@ export function registerNodeCore(reg) {
     return { value };
   });
 
+  reg.register('lcod://contract/core/path/dirname@1', async (_ctx, input = {}) => {
+    const target = typeof input.path === 'string' ? input.path : '';
+    return { dirname: computeDirname(target) };
+  });
+
   reg.register('lcod://contract/core/value/kind@1', async (_ctx, input = {}) => {
     const value = Object.prototype.hasOwnProperty.call(input, 'value')
       ? input.value
@@ -1009,4 +1014,34 @@ export function registerNodeResolverAxioms(reg) {
   reg.register('lcod://impl/set@1', async (_ctx, input = {}) => ({ ...input }));
 
   return reg;
+}
+
+function computeDirname(value) {
+  if (typeof value !== 'string' || value.length === 0) {
+    return '.';
+  }
+  const trimmed = stripTrailingSeparators(value);
+  if (!trimmed.length) return '.';
+  if (trimmed === '/' || trimmed === '\\') {
+    return trimmed;
+  }
+  const lastSlash = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+  if (lastSlash < 0) return '.';
+  if (lastSlash === 0) {
+    const first = trimmed[0];
+    return first === '/' || first === '\\' ? first : '.';
+  }
+  const dirname = trimmed.slice(0, lastSlash);
+  if (!dirname.length) {
+    return trimmed.startsWith('/') || trimmed.startsWith('\\') ? trimmed[0] : '.';
+  }
+  return dirname;
+}
+
+function stripTrailingSeparators(input) {
+  let result = input;
+  while (result.length > 1 && (result.endsWith('/') || result.endsWith('\\'))) {
+    result = result.slice(0, -1);
+  }
+  return result;
 }

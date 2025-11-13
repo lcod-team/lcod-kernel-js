@@ -157,6 +157,18 @@ test('core/parse json/toml/csv', async () => {
   assert.deepEqual(csv.rows, [{ a: '1', b: '2' }]);
 });
 
+test('core/path dirname returns parent directory', async () => {
+  const ctx = createContext();
+  const absolute = await ctx.call('lcod://contract/core/path/dirname@1', { path: '/tmp/work/file.txt' });
+  assert.equal(absolute.dirname, '/tmp/work');
+
+  const relative = await ctx.call('lcod://contract/core/path/dirname@1', { path: 'README.md' });
+  assert.equal(relative.dirname, '.');
+
+  const root = await ctx.call('lcod://contract/core/path/dirname@1', { path: '/etc/' });
+  assert.equal(root.dirname, '/');
+});
+
 test('core/array length and push', async () => {
   const ctx = createContext();
   const array = [1, 2, 3];
