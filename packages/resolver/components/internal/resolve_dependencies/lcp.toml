@@ -1,0 +1,185 @@
+schemaVersion = "2.0"
+id = "lcod://tooling/resolver/internal/resolve-dependencies@0.1.0"
+version = "0.1.0"
+kind = "function"
+summary = "Prepare resolver context, load catalogue sources, and resolve component dependencies."
+
+[deps]
+requires = [
+  "lcod://flow/if@1",
+  "lcod://flow/foreach@1",
+  "lcod://flow/try@1",
+  "lcod://tooling/script@1",
+  "lcod://impl/set@1",
+  "lcod://tooling/value/default_object@0.1.0",
+  "lcod://tooling/value/default_array@0.1.0",
+  "lcod://tooling/value/is_string_nonempty@0.1.0",
+  "lcod://tooling/value/is_array@0.1.0",
+  "lcod://tooling/resolver/register@1",
+  "lcod://tooling/resolver/register_components@0.1.0",
+  "lcod://tooling/resolver/internal/load-sources@0.1.0",
+  "lcod://tooling/registry/source/load@0.1.0",
+  "lcod://tooling/registry/index@0.1.0",
+  "lcod://tooling/registry/select@0.1.0",
+  "lcod://tooling/resolver/context/prepare@0.1.0",
+  "lcod://tooling/resolver/replace/apply@0.1.0",
+  "lcod://tooling/resolver/warnings/merge@0.1.0",
+  "lcod://contract/tooling/resolver/resolve_dependencies@1",
+  "lcod://contract/core/hash/sha256@1",
+  "lcod://axiom/path/join@1"
+]
+
+[tool]
+name = "resolve-dependencies"
+description = "Normalizes resolver configuration, merges workspace/spec sources, and drives the dependency resolution contract."
+
+[inputs.projectPath]
+summary = "Absolute path to the project using the resolver."
+required = true
+schema = """
+{ "type": "string", "minLength": 1 }
+"""
+
+[inputs.cacheRoot]
+summary = "Directory used for resolver cache entries."
+required = false
+schema = """
+{ "type": "string", "minLength": 1 }
+"""
+
+[inputs.normalizedConfig]
+summary = "Pre-normalized resolver configuration (mutated in-place with spec sources)."
+required = false
+schema = """
+{ "type": "object" }
+"""
+
+[inputs.config]
+summary = "Raw resolver configuration used for fallbacks."
+required = false
+schema = """
+{ "type": "object" }
+"""
+
+[inputs.rootId]
+summary = "LCOD identifier of the root component."
+required = false
+schema = """
+{ "type": "string" }
+"""
+
+[inputs.rootDescriptor]
+summary = "Descriptor object for the root component."
+required = false
+schema = """
+{ "type": "object" }
+"""
+
+[inputs.rootDescriptorText]
+summary = "Raw text of the root descriptor (for integrity)."
+required = false
+schema = """
+{ "type": "string" }
+"""
+
+[inputs.warnings]
+summary = "Warnings accumulated so far in the resolver pipeline."
+required = false
+schema = """
+{ "type": "array", "items": { "type": "string" } }
+"""
+
+[inputs.loadWarnings]
+summary = "Warnings emitted while loading registry sources."
+required = false
+schema = """
+{ "type": "array", "items": { "type": "string" } }
+"""
+
+[inputs.indexWarnings]
+summary = "Warnings emitted during registry indexing."
+required = false
+schema = """
+{ "type": "array", "items": { "type": "string" } }
+"""
+
+[inputs.registrationWarnings]
+summary = "Warnings emitted while registering helper components."
+required = false
+schema = """
+{ "type": "array", "items": { "type": "string" } }
+"""
+
+[inputs.registrySources]
+summary = "Inline registry sources collected from sources.json."
+required = false
+schema = """
+{ "type": "array" }
+"""
+
+[inputs.registryEntries]
+summary = "Entries returned by tooling/registry/index@0.1.0."
+required = false
+schema = """
+{ "type": "array" }
+"""
+
+[inputs.registryPackages]
+summary = "Packages map returned by tooling/registry/index@0.1.0."
+required = false
+schema = """
+{ "type": "object" }
+"""
+
+[inputs.registryRegistries]
+summary = "Registries list returned by tooling/registry/index@0.1.0."
+required = false
+schema = """
+{ "type": "array" }
+"""
+
+[inputs.pointerWarnings]
+summary = "Warnings from pointer source expansion."
+required = false
+schema = """
+{ "type": "array", "items": { "type": "string" } }
+"""
+
+[inputs.pointerRegistrySources]
+summary = "Additional registry sources resolved from pointer references."
+required = false
+schema = """
+{ "type": "array" }
+"""
+
+[inputs.sourcesPath]
+summary = "Path to the sources.json file that was used."
+required = false
+schema = """
+{ "type": ["string", "null"] }
+"""
+
+[inputs.specSources]
+summary = "Workspace/spec component sources injected by register_components."
+required = false
+schema = """
+{ "type": "object" }
+"""
+
+[outputs.resolverResult]
+summary = "Resolved dependency graph and registry metadata."
+schema = """
+{ "type": "object" }
+"""
+
+[outputs.warnings]
+summary = "Warnings produced while resolving dependencies."
+schema = """
+{ "type": "array", "items": { "type": "string" } }
+"""
+
+[documentation]
+body = """
+Combines resolver configuration (project settings, sources.json, catalogue indexes, workspace overrides) and drives the dependency resolution contract.
+
+The component merges spec/workspace helper sources into the normalized configuration, loads registry entries, and invokes `contract/tooling/resolver/resolve_dependencies@1` to produce the final dependency graph exposed to the rest of the resolver pipeline."""

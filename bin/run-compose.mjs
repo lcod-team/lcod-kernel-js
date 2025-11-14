@@ -854,6 +854,9 @@ async function main() {
     if (args.cacheDir) {
       process.env.LCOD_CACHE_DIR = path.resolve(process.cwd(), args.cacheDir);
     }
+    if (process.env.LCOD_DEBUG_RUN_COMPOSE_STATE) {
+      console.error('[run-compose][resolver-state]', JSON.stringify(state));
+    }
     initial = state;
   }
   let result;
@@ -862,6 +865,9 @@ async function main() {
     console.warn('Input payload is not an object; wrapping under {"input": ...}');
   }
   const sanitizedState = sanitizeInputState(normalizedState, metadata);
+  if (process.env.LCOD_DEBUG_RUN_COMPOSE_STATE) {
+    console.error('[run-compose][sanitized-state]', JSON.stringify(sanitizedState));
+  }
   try {
     result = await runCompose(ctx, compose, sanitizedState);
   } catch (err) {

@@ -279,6 +279,7 @@ test('resolver compose resolves local path dependency', async (t) => {
 
     const result = await runCompose(ctx, compose, state);
     console.log('[resolver-test] result keys', Object.keys(result));
+    console.log('[resolver-test] config', JSON.stringify(result.config ?? null));
     console.log('[resolver-test] contractSourcesSnapshot', JSON.stringify(result.contractSourcesSnapshot ?? null));
     console.log('[resolver-test] resolverOutput', JSON.stringify(result.resolverOutput ?? null));
     const components = Array.isArray(result.components) ? result.components : [];

@@ -178,6 +178,15 @@ test('core/path is_absolute reports correctly', async () => {
   assert.equal(relative.absolute, false);
 });
 
+test('core/path to_file_url normalizes separators', async () => {
+  const ctx = createContext();
+  const result = await ctx.call('lcod://contract/core/path/to_file_url@1', { path: 'C:/tmp/./work' });
+  assert.equal(result.url, 'file://C:/tmp/work/');
+
+  const empty = await ctx.call('lcod://contract/core/path/to_file_url@1', { path: '' });
+  assert.equal(empty.url, null);
+});
+
 test('core/array length and push', async () => {
   const ctx = createContext();
   const array = [1, 2, 3];

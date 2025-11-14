@@ -838,6 +838,21 @@ export function registerNodeCore(reg) {
     return { absolute: path.isAbsolute(target) };
   });
 
+  reg.register('lcod://contract/core/path/to_file_url@1', async (_ctx, input = {}) => {
+    const raw = typeof input.path === 'string' ? input.path : '';
+    if (!raw.length) {
+      return { url: null };
+    }
+    let normalized = raw.replace(/\\/g, '/');
+    while (normalized.includes('/./')) {
+      normalized = normalized.replace('/./', '/');
+    }
+    if (!normalized.endsWith('/')) {
+      normalized += '/';
+    }
+    return { url: `file://${normalized}` };
+  });
+
   reg.register('lcod://contract/core/value/kind@1', async (_ctx, input = {}) => {
     const value = Object.prototype.hasOwnProperty.call(input, 'value')
       ? input.value

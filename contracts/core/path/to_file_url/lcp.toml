@@ -1,0 +1,21 @@
+schemaVersion = "2.0"
+id = "lcod://contract/core/path/to_file_url@1.0.0"
+version = "1.0.0"
+kind = "contract"
+summary = "Normalize a local path into a file:// URL."
+
+[hints]
+timeoutMs = 500
+
+[tool]
+name = "path_to_file_url"
+description = "Convert filesystem paths to file:// URLs."
+inputSchema = "schema/to_file_url.in.json"
+outputSchema = "schema/to_file_url.out.json"
+
+[documentation]
+body = """
+Convert a path string into a canonical `file://` URL: backslashes become
+forward slashes, `/./` segments are collapsed, a trailing slash is enforced,
+and an empty input yields `null`.
+"""

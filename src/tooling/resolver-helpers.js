@@ -832,6 +832,14 @@ export function registerResolverHelpers(registry) {
 
 function registerResolveDependenciesContract(registry) {
   registry.register('lcod://contract/tooling/resolver/resolve_dependencies@1', async (ctx, input = {}) => {
+    const builtinPrefixes = [
+      'lcod://contract/',
+      'lcod://core/',
+      'lcod://flow/',
+      'lcod://impl/',
+      'lcod://axiom/'
+    ];
+    const shouldSkipDependency = (id) => builtinPrefixes.some((prefix) => id && id.startsWith(prefix));
     const sanitizeStrings = (value) => Array.isArray(value)
       ? value.filter((msg) => typeof msg === 'string' && msg.length > 0)
       : [];
@@ -888,7 +896,13 @@ function registerResolveDependenciesContract(registry) {
     }
 
     const normalizedConfigRaw = clonePlainObject(input.normalizedConfig) ?? {};
+    const normalizedSourceKeys = normalizedConfigRaw.sources && typeof normalizedConfigRaw.sources === 'object'
+      ? Object.keys(normalizedConfigRaw.sources)
+      : [];
     const configRaw = clonePlainObject(input.config) ?? {};
+    const configSourceKeys = configRaw.sources && typeof configRaw.sources === 'object'
+      ? Object.keys(configRaw.sources)
+      : [];
     const pointerRegistrySources = sanitizeObjectArray(input.pointerRegistrySources);
     const registryRegistries = Array.isArray(input.registryRegistries) ? input.registryRegistries : [];
     const registryEntries = Array.isArray(input.registryEntries) ? input.registryEntries : [];
@@ -899,9 +913,13 @@ function registerResolveDependenciesContract(registry) {
       ? input.sourcesPath
       : null;
 
+    const specSources = hasKeys(input.specSources) ? input.specSources : null;
     let sources = hasKeys(normalizedConfigRaw.sources)
       ? normalizedConfigRaw.sources
       : (hasKeys(configRaw.sources) ? configRaw.sources : {});
+    if (specSources) {
+      sources = { ...specSources, ...sources };
+    }
     let registrySources = sanitizeObjectArray(input.registrySources);
     let replaceAlias = clonePlainObject(normalizedConfigRaw.replaceAlias) ?? {};
     let replaceSpec = clonePlainObject(normalizedConfigRaw.replaceSpec) ?? {};
@@ -952,6 +970,9 @@ function registerResolveDependenciesContract(registry) {
       if (Array.isArray(prepared.warnings)) {
         warnings = prepared.warnings.slice();
       }
+    }
+    if (specSources) {
+      sources = { ...specSources, ...sources };
     }
 
     const sourceEntries = extractSourceEntries(sources);
@@ -1304,6 +1325,7 @@ function registerResolveDependenciesContract(registry) {
       const childIds = Array.isArray(info?.childIds) ? info.childIds : [];
       for (const child of childIds) {
         if (typeof child !== 'string' || !child) continue;
+        if (shouldSkipDependency(child)) continue;
         try {
           const childRecord = await resolveDependency(child, [...stack, originalId]);
           if (childRecord) record.dependencies.push(childRecord);
